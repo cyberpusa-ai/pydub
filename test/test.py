@@ -664,6 +664,31 @@ class AudioSegmentTests(unittest.TestCase):
         self.assertEqual(seg_exported_wav.frame_rate, 16000)
         self.assertEqual(seg_exported_wav.channels, 1)
 
+    def test_from_file_with_parameters(self):
+        # parameters must be output options (before the output target), not
+        # trailing options that ffmpeg ignores
+        orig = AudioSegment.from_file(self.mp3_file_path)
+        self.assertNotEqual(orig.frame_rate, 8000)
+        self.assertEqual(orig.channels, 1)
+        seg = AudioSegment.from_file(self.mp3_file_path,
+                                     parameters=['-ar', '8000', '-ac', '2'])
+        self.assertEqual(seg.frame_rate, 8000)
+        self.assertEqual(seg.channels, 2)
+        self.assertWithinTolerance(len(seg), len(orig), percentage=0.01)
+
+        with open(self.mp3_file_path, 'rb') as mp3_file:
+            seg = AudioSegment.from_file(mp3_file, format='mp3',
+                                         parameters=['-ar', '8000'])
+        self.assertEqual(seg.frame_rate, 8000)
+
+    def test_from_file_using_temporary_files_with_parameters(self):
+        orig = AudioSegment.from_file(self.mp3_file_path)
+        seg = AudioSegment.from_file_using_temporary_files(
+            self.mp3_file_path, parameters=['-ar', '8000', '-ac', '2'])
+        self.assertEqual(seg.frame_rate, 8000)
+        self.assertEqual(seg.channels, 2)
+        self.assertWithinTolerance(len(seg), len(orig), percentage=0.01)
+
     def test_export_as_raw(self):
         seg = self.seg1
         exported_raw = seg.export(format='raw')

@@ -102,6 +102,8 @@ The first argument is the path (as a string) of the file to read, **or** a file 
   Offset (in seconds) to start loading the audio file. If `None`, the audio will start loading from the beginning.
 - `duration` | example: `2.5` | default: `None`
   Number of seconds to be loaded. If `None`, full audio will be loaded.
+- `parameters` | example: `["-ar", "16000", "-ac", "1"]` | default: `None`
+  Pass additional [command line parameters](https://www.ffmpeg.org/ffmpeg.html) to the ffmpeg call used for decoding. These are added as output options, just before the output target. Not applied to `"wav"` and `"raw"` files, which are read natively without ffmpeg.
 
 
 ### AudioSegment(…).export()
