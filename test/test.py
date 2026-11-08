@@ -920,6 +920,26 @@ class AudioSegmentTests(unittest.TestCase):
             if sys.platform == 'win32':
                 os.remove(tmp_mp3_file.name)
 
+    def test_export_wav_with_tags(self):
+        tags = {'artist': 'Mozart', 'title': 'The Magic Flute'}
+
+        delete = sys.platform != 'win32'
+
+        with NamedTemporaryFile('w+b', suffix='.wav', delete=delete) as tmp_wav_file:
+            self.seg1.export(tmp_wav_file, format="wav", tags=tags)
+
+            if sys.platform == 'win32':
+                tmp_wav_file.close()
+
+            info = mediainfo(filepath=tmp_wav_file.name)
+            info_tags = info["TAG"]
+
+            self.assertEqual(info_tags["artist"], "Mozart")
+            self.assertEqual(info_tags["title"], "The Magic Flute")
+
+            if sys.platform == 'win32':
+                os.remove(tmp_wav_file.name)
+
     def test_mp3_with_jpg_cover_img(self):
         with NamedTemporaryFile('w+b', suffix='.mp3') as tmp_mp3_file:
             outf = self.seg1.export(tmp_mp3_file, format="mp3", cover=self.jpg_cover_path)

@@ -1,6 +1,7 @@
 # Unreleased
 - `pydub.AudioSegment().export()` accepts an int `bitrate` (bits per second) instead of crashing with a `TypeError`
 - A missing `ffprobe` now raises an error that names the prober and how to configure it, and `ffprobe`/`avprobe` next to a path-configured `AudioSegment.converter` is used when it is not on the PATH
+- `pydub.AudioSegment().export(format="wav", tags=...)` now writes the tags instead of silently dropping them
 
 # v0.25.1
 - Fix crashing bug in new scipy-powered EQ effects

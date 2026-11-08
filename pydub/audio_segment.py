@@ -877,8 +877,8 @@ class AudioSegment(object):
             out_f.seek(0)
             return out_f
 
-        # wav with no ffmpeg parameters can just be written directly to out_f
-        easy_wav = format == "wav" and codec is None and parameters is None
+        # wav with no ffmpeg parameters or tags can just be written directly to out_f
+        easy_wav = format == "wav" and codec is None and parameters is None and tags is None
 
         if easy_wav:
             data = out_f
