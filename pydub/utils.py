@@ -261,6 +261,14 @@ def fsdecode(filename):
     raise TypeError("type {0} not accepted by fsdecode".format(type(filename)))
 
 
+def _safe_input_path(filename):
+    """Prefix relative paths that start with a dash (e.g. "-a.mp3") with
+    "./" so ffmpeg/ffprobe don't parse them as options (or as stdin)."""
+    if filename.startswith('-'):
+        return os.path.join('.', filename)
+    return filename
+
+
 def get_extra_info(stderr):
     """
     avprobe sometimes gives more information on stderr than
@@ -298,7 +306,7 @@ def mediainfo_json(filepath, read_ahead_limit=-1):
         "-show_streams",
     ]
     try:
-        command_args += [fsdecode(filepath)]
+        command_args += [_safe_input_path(fsdecode(filepath))]
         stdin_parameter = None
         stdin_data = None
     except TypeError:
@@ -373,7 +381,7 @@ def mediainfo(filepath):
         "-v", "quiet",
         "-show_format",
         "-show_streams",
-        filepath
+        _safe_input_path(fsdecode(filepath))
     ]
 
     command = [prober, '-of', 'old'] + command_args

@@ -208,6 +208,37 @@ class FileAccessTests(unittest.TestCase):
         self.assertTrue(seg1._data == seg2._data)
         self.assertTrue(len(seg1) > 0)
 
+    def _in_dir_with_dash_named_copy(self, test):
+        # a relative filename starting with "-" must not be parsed as an option
+        import shutil
+        orig_cwd = os.getcwd()
+        tmp_dir = mkdtemp()
+        try:
+            shutil.copy(self.mp3_path, os.path.join(tmp_dir, '-x.mp3'))
+            os.chdir(tmp_dir)
+            test('-x.mp3')
+        finally:
+            os.chdir(orig_cwd)
+            shutil.rmtree(tmp_dir)
+
+    def test_mediainfo_filename_starting_with_dash(self):
+        def test(filename):
+            info = mediainfo_json(filename)
+            self.assertEqual(info['streams'][0]['codec_type'], 'audio')
+            self.assertEqual(mediainfo(filename)['codec_name'], 'mp3')
+        self._in_dir_with_dash_named_copy(test)
+
+    def test_from_file_filename_starting_with_dash(self):
+        expected = AudioSegment.from_file(self.mp3_path)
+
+        def test(filename):
+            seg = AudioSegment.from_file(filename)
+            self.assertEqual(len(seg), len(expected))
+            self.assertEqual(seg._data, expected._data)
+            seg = AudioSegment.from_file_using_temporary_files(filename)
+            self.assertEqual(len(seg), len(expected))
+        self._in_dir_with_dash_named_copy(test)
+
 
 test1wav = test4wav = test1 = test2 = test3 = testparty = testdcoffset = None
 
