@@ -516,20 +516,118 @@ def ratecv(cp, size, nchannels, inrate, outrate, state, weightA=1, weightB=0):
             d -= inrate
 
 
+# G.711 u-law and A-law, ported from the st_* functions in CPython's audioop.c
+_SEG_UEND = (0x3F, 0x7F, 0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF, 0x1FFF)
+_SEG_AEND = (0x1F, 0x3F, 0x7F, 0xFF, 0x1FF, 0x3FF, 0x7FF, 0xFFF)
+_ULAW_BIAS = 0x84
+_ULAW_CLIP = 32635
+
+
+def _search(val, table):
+    for i, end in enumerate(table):
+        if val <= end:
+            return i
+    return len(table)
+
+
+def _linear2ulaw(pcm_val):
+    # pcm_val is in the 14-bit range
+    if pcm_val < 0:
+        pcm_val = -pcm_val
+        mask = 0x7F
+    else:
+        mask = 0xFF
+    if pcm_val > _ULAW_CLIP:
+        pcm_val = _ULAW_CLIP
+    pcm_val += _ULAW_BIAS >> 2
+
+    seg = _search(pcm_val, _SEG_UEND)
+    if seg >= 8:
+        return 0x7F ^ mask
+    uval = (seg << 4) | ((pcm_val >> (seg + 1)) & 0xF)
+    return uval ^ mask
+
+
+def _ulaw2linear(u_val):
+    # returns a 16-bit sample
+    u_val = ~u_val & 0xFF
+    t = ((u_val & 0xF) << 3) + _ULAW_BIAS
+    t <<= (u_val & 0x70) >> 4
+    return (_ULAW_BIAS - t) if u_val & 0x80 else (t - _ULAW_BIAS)
+
+
+def _linear2alaw(pcm_val):
+    # pcm_val is in the 13-bit range
+    if pcm_val >= 0:
+        mask = 0xD5
+    else:
+        mask = 0x55
+        pcm_val = -pcm_val - 1
+
+    seg = _search(pcm_val, _SEG_AEND)
+    if seg >= 8:
+        return 0x7F ^ mask
+    aval = seg << 4
+    if seg < 2:
+        aval |= (pcm_val >> 1) & 0xF
+    else:
+        aval |= (pcm_val >> seg) & 0xF
+    return aval ^ mask
+
+
+def _alaw2linear(a_val):
+    # returns a 16-bit sample
+    a_val ^= 0x55
+    t = (a_val & 0xF) << 4
+    seg = (a_val & 0x70) >> 4
+    if seg == 0:
+        t += 8
+    elif seg == 1:
+        t += 0x108
+    else:
+        t = (t + 0x108) << (seg - 1)
+    return t if a_val & 0x80 else -t
+
+
+_ULAW2LINEAR = [_ulaw2linear(i) for i in range(256)]
+_ALAW2LINEAR = [_alaw2linear(i) for i in range(256)]
+
+
+def _lin2law(cp, size, shift, encode):
+    _check_params(len(cp), size)
+    # scale through 32 bits like audioop's GETSAMPLE32
+    up = 32 - 8 * size
+    return bytes(bytearray(
+        encode((sample << up) >> shift) for sample in _get_samples(cp, size)
+    ))
+
+
+def _law2lin(cp, size, table):
+    _check_size(size)
+    data = bytearray(cp)
+    result = create_string_buffer(len(data) * size)
+    # scale through 32 bits like audioop's SETSAMPLE32
+    down = 8 * size - 16
+    for i, val in enumerate(data):
+        val = table[val]
+        _put_sample(result, size, i, val << down if down >= 0 else val >> -down)
+    return result.raw
+
+
 def lin2ulaw(cp, size):
-    raise NotImplementedError()
+    return _lin2law(cp, size, 18, _linear2ulaw)
 
 
 def ulaw2lin(cp, size):
-    raise NotImplementedError()
+    return _law2lin(cp, size, _ULAW2LINEAR)
 
 
 def lin2alaw(cp, size):
-    raise NotImplementedError()
+    return _lin2law(cp, size, 19, _linear2alaw)
 
 
 def alaw2lin(cp, size):
-    raise NotImplementedError()
+    return _law2lin(cp, size, _ALAW2LINEAR)
 
 
 def lin2adpcm(cp, size, state):
