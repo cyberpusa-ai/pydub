@@ -1617,6 +1617,29 @@ class PyAudioopTests(unittest.TestCase):
         self.assertEqual(state, (-2, ((1966080000, 458752),
                                       (-2147483648, -458752))))
 
+    def test_ulaw_alaw_known_values(self):
+        op = self.pyaudioop
+        d = self.data
+        self.assertEqual(list(bytearray(op.lin2ulaw(d, 2))),
+                         [206, 63, 130, 0, 254, 126])
+        self.assertEqual(list(bytearray(op.lin2alaw(d, 2))),
+                         [250, 106, 168, 42, 213, 85])
+        codes = b"\x00\x7f\x80\xff\x55\xd5"
+        self.assertEqual(self.unpack(op.ulaw2lin(codes, 2)),
+                         [-32124, 0, 32124, 0, -716, 716])
+        self.assertEqual(self.unpack(op.alaw2lin(codes, 2)),
+                         [-5504, -848, 5504, 848, -8, 8])
+        self.assertEqual(self.unpack(op.ulaw2lin(codes, 1), 1),
+                         [-126, 0, 125, 0, -3, 2])
+        self.assertEqual(self.unpack(op.alaw2lin(codes, 4), 4),
+                         [-5504 << 16, -848 << 16, 5504 << 16, 848 << 16,
+                          -8 << 16, 8 << 16])
+        # one byte per sample, whatever the input width
+        self.assertEqual(len(op.lin2ulaw(op.lin2lin(d, 2, 4), 4)), 6)
+        self.assertEqual(len(op.lin2alaw(op.lin2lin(d, 2, 1), 1)), 6)
+        self.assertRaises(op.error, op.lin2ulaw, b"\x00", 2)
+        self.assertRaises(op.error, op.alaw2lin, b"\x00", 3)
+
     def test_audio_segment_operations_without_audioop(self):
         from pydub import audio_segment, effects, utils
         modules = (audio_segment, effects, utils)
@@ -1674,6 +1697,10 @@ class PyAudioopTests(unittest.TestCase):
                     calls.append(("tostereo", d, size, fac1, fac2))
                 for size2 in (1, 2, 4):
                     calls.append(("lin2lin", d, size, size2))
+                for name in ("lin2ulaw", "lin2alaw"):
+                    calls.append((name, d, size))
+                for name in ("ulaw2lin", "alaw2lin"):
+                    calls.append((name, d, size))
                 for channels in (1, 2):
                     for rates in ((44100, 22050), (8000, 44100), (44100, 48000)):
                         calls.append(("ratecv", d, size, channels) + rates + (None,))
@@ -1682,6 +1709,19 @@ class PyAudioopTests(unittest.TestCase):
                     expected = getattr(audioop, call[0])(*call[1:])
                     actual = getattr(op, call[0])(*call[1:])
                     self.assertEqual(expected, actual, (call[0], size, n) + call[3:])
+
+        # every u-law/A-law code, and every 8 and 16 bit sample
+        codes = bytes(bytearray(range(256)))
+        for size in (1, 2, 4):
+            for name in ("ulaw2lin", "alaw2lin"):
+                self.assertEqual(getattr(audioop, name)(codes, size),
+                                 getattr(op, name)(codes, size), (name, size))
+        for size, fmt in ((1, "b"), (2, "h")):
+            bits = 8 * size
+            d = struct.pack("%d%s" % (2 ** bits, fmt), *range(-2 ** (bits - 1), 2 ** (bits - 1)))
+            for name in ("lin2ulaw", "lin2alaw"):
+                self.assertEqual(getattr(audioop, name)(d, size),
+                                 getattr(op, name)(d, size), (name, size))
 
         # resampling in chunks, passing the state along
         d = bytes(bytearray(rnd.getrandbits(8) for _ in range(800)))
