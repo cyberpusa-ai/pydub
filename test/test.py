@@ -617,6 +617,20 @@ class AudioSegmentTests(unittest.TestCase):
                                    len(seg),
                                    percentage=0.01)
 
+    def test_export_with_int_bitrate(self):
+        seg = self.seg1[:2000]
+        exported_mp3 = seg.export(format="mp3", bitrate=128000)
+        seg_exported_mp3 = AudioSegment.from_mp3(exported_mp3)
+
+        self.assertWithinTolerance(len(seg_exported_mp3),
+                                   len(seg),
+                                   percentage=0.01)
+
+        # an int bitrate behaves the same as the equivalent string
+        int_size = len(seg.export(format="mp3", bitrate=64000).read())
+        str_size = len(seg.export(format="mp3", bitrate="64000").read())
+        self.assertEqual(int_size, str_size)
+
     def test_export_as_wav(self):
         seg = self.seg1
         exported_wav = seg.export(format='wav')

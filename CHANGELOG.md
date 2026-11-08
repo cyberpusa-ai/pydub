@@ -1,3 +1,6 @@
+# Unreleased
+- `pydub.AudioSegment().export()` accepts an int `bitrate` (bits per second) instead of crashing with a `TypeError`
+
 # v0.25.1
 - Fix crashing bug in new scipy-powered EQ effects
 

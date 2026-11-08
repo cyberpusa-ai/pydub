@@ -841,8 +841,9 @@ class AudioSegment(object):
         codec (string)
             Codec used to encode the destination file.
 
-        bitrate (string)
+        bitrate (string or int)
             Bitrate used when encoding destination file. (64, 92, 128, 256, 312k...)
+            An int is passed to ffmpeg as-is, in bits per second (e.g. 128000).
             Each codec accepts different bitrate arguments so take a look at the
             ffmpeg documentation for details (bitrate usually shown as -b, -ba or
             -a:b).
@@ -928,7 +929,7 @@ class AudioSegment(object):
             conversion_command.extend(["-acodec", codec])
 
         if bitrate is not None:
-            conversion_command.extend(["-b:a", bitrate])
+            conversion_command.extend(["-b:a", str(bitrate)])
 
         if parameters is not None:
             # extend arguments with arbitrary set
