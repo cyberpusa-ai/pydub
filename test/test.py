@@ -1428,6 +1428,140 @@ class PartialAudioSegmentLoadTests(unittest.TestCase):
         self.assertEqual(partial_seg1._data, partial_seg2._data)
 
 
+class PyAudioopTests(unittest.TestCase):
+    """
+    pydub.pyaudioop is the fallback used when the stdlib audioop module is
+    missing (it was removed in Python 3.13), so it must work on Python 3 and
+    give the same results as audioop.
+    """
+
+    def setUp(self):
+        from pydub import pyaudioop
+        self.pyaudioop = pyaudioop
+        self.samples = [1000, -2000, 30000, -32768, 7, -7]
+        self.data = struct.pack("6h", *self.samples)
+
+    def unpack(self, data, size=2):
+        fmt = {1: "b", 2: "h", 4: "i"}[size]
+        return list(struct.unpack("%d%s" % (len(data) // size, fmt), data))
+
+    def test_known_values(self):
+        op = self.pyaudioop
+        d = self.data
+        self.assertEqual(op.rms(d, 2), 18160)
+        self.assertEqual(op.max(d, 2), 32768)
+        self.assertEqual(op.avg(d, 2), -628)
+        self.assertEqual(self.unpack(op.mul(d, 2, 1.5)),
+                         [1500, -3000, 32767, -32768, 10, -11])
+        self.assertEqual(self.unpack(op.bias(d, 2, 1000)),
+                         [2000, -1000, 31000, -31768, 1007, 993])
+        self.assertEqual(self.unpack(op.add(d, d, 2)),
+                         [2000, -4000, 32767, -32768, 14, -14])
+        self.assertEqual(self.unpack(op.reverse(d, 2)), self.samples[::-1])
+        self.assertEqual(self.unpack(op.tomono(d, 2, 0.5, 0.5)),
+                         [-500, -1384, 0])
+        self.assertEqual(self.unpack(op.tostereo(d, 2, 1, 0.5))[:4],
+                         [1000, 500, -2000, -1000])
+        self.assertEqual(self.unpack(op.lin2lin(d, 2, 1), 1),
+                         [3, -8, 117, -128, 0, -1])
+        self.assertEqual(self.unpack(op.lin2lin(d, 2, 4), 4),
+                         [s << 16 for s in self.samples])
+        converted, state = op.ratecv(d, 2, 2, 3, 2, None)
+        self.assertEqual(self.unpack(converted), [1000, -2000, 15003, -16388])
+        self.assertEqual(state, (-2, ((1966080000, 458752),
+                                      (-2147483648, -458752))))
+
+    def test_audio_segment_operations_without_audioop(self):
+        from pydub import audio_segment, effects, utils
+        modules = (audio_segment, effects, utils)
+        originals = [m.audioop for m in modules]
+        try:
+            for m in modules:
+                m.audioop = self.pyaudioop
+            seg = Sine(440).to_audio_segment(duration=50).set_channels(2)
+            seg = seg.set_frame_rate(22050).set_sample_width(4)
+            seg = seg.overlay(seg - 6).fade_in(10).fade_out(10)
+            seg = seg.set_channels(1).reverse()
+            self.assertEqual(seg.frame_rate, 22050)
+            self.assertEqual(seg.sample_width, 4)
+            self.assertTrue(seg.rms > 0)
+            processed = seg._data
+        finally:
+            for m, original in zip(modules, originals):
+                m.audioop = original
+
+        try:
+            import audioop  # noqa: F401
+        except ImportError:
+            return
+        seg = Sine(440).to_audio_segment(duration=50).set_channels(2)
+        seg = seg.set_frame_rate(22050).set_sample_width(4)
+        seg = seg.overlay(seg - 6).fade_in(10).fade_out(10)
+        seg = seg.set_channels(1).reverse()
+        self.assertEqual(processed, seg._data)
+
+    def test_matches_stdlib_audioop(self):
+        try:
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                import audioop
+        except ImportError:
+            raise unittest.SkipTest("stdlib audioop is not available")
+        import random
+        rnd = random.Random(0)
+        op = self.pyaudioop
+        for size in (1, 2, 4):
+            for n in (0, 2, 10, 101):
+                d = bytes(bytearray(rnd.getrandbits(8) for _ in range(2 * n * size)))
+                d2 = bytes(bytearray(rnd.getrandbits(8) for _ in range(2 * n * size)))
+                calls = [
+                    ("max", d, size), ("rms", d, size), ("avg", d, size),
+                    ("minmax", d, size), ("cross", d, size),
+                    ("reverse", d, size), ("add", d, d2, size),
+                    ("bias", d, size, 1000), ("bias", d, size, -1),
+                ]
+                for factor in (0, 0.5, 2, 3.7, -0.3):
+                    calls.append(("mul", d, size, factor))
+                for fac1, fac2 in ((1, 1), (0.5, 0.5), (0.7, 0.3), (-1, 1)):
+                    calls.append(("tomono", d, size, fac1, fac2))
+                    calls.append(("tostereo", d, size, fac1, fac2))
+                for size2 in (1, 2, 4):
+                    calls.append(("lin2lin", d, size, size2))
+                for channels in (1, 2):
+                    for rates in ((44100, 22050), (8000, 44100), (44100, 48000)):
+                        calls.append(("ratecv", d, size, channels) + rates + (None,))
+                        calls.append(("ratecv", d, size, channels) + rates + (None, 2, 1))
+                for call in calls:
+                    expected = getattr(audioop, call[0])(*call[1:])
+                    actual = getattr(op, call[0])(*call[1:])
+                    self.assertEqual(expected, actual, (call[0], size, n) + call[3:])
+
+        # resampling in chunks, passing the state along
+        d = bytes(bytearray(rnd.getrandbits(8) for _ in range(800)))
+        state_a = state_p = None
+        out_a = out_p = b""
+        for i in range(0, len(d), 80):
+            chunk_a, state_a = audioop.ratecv(d[i:i + 80], 2, 2, 44100, 32000, state_a)
+            chunk_p, state_p = op.ratecv(d[i:i + 80], 2, 2, 44100, 32000, state_p)
+            out_a += chunk_a
+            out_p += chunk_p
+        self.assertEqual((out_a, state_a), (out_p, state_p))
+
+    def test_utils_imports_fallback_without_audioop(self):
+        import subprocess
+        code = (
+            "import sys; sys.modules['audioop'] = None; "
+            "from pydub.utils import audioop; "
+            "assert audioop.__name__ == 'pydub.pyaudioop', audioop.__name__"
+        )
+        here = os.path.dirname(os.path.abspath(__file__))
+        proc = subprocess.Popen([sys.executable, "-c", code], cwd=here,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _, err = proc.communicate()
+        self.assertEqual(proc.returncode, 0, err.decode("utf-8", "replace"))
+
+
 if __name__ == "__main__":
     import sys
 
