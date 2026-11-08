@@ -8,7 +8,7 @@ import wave
 import sys
 import struct
 from .logging_utils import log_conversion, log_subprocess_output
-from .utils import mediainfo_json, fsdecode
+from .utils import mediainfo_json, fsdecode, _safe_input_path
 import base64
 from collections import namedtuple
 
@@ -710,7 +710,7 @@ class AudioSegment(object):
 
         read_ahead_limit = kwargs.get('read_ahead_limit', -1)
         if filename:
-            conversion_command += ["-i", filename]
+            conversion_command += ["-i", _safe_input_path(filename)]
             stdin_parameter = None
             stdin_data = None
         else:
