@@ -9,6 +9,7 @@ from tempfile import (
 )
 import tempfile
 import struct
+import subprocess
 import warnings
 
 from pydub import AudioSegment
@@ -47,6 +48,23 @@ from pydub.generators import (
 )
 
 data_dir = os.path.join(os.path.dirname(__file__), 'data')
+
+
+def has_encoder(name):
+    """
+    get_supported_encoders() lists codecs (e.g. "vorbis"), not the encoder
+    libraries that implement them (e.g. "libvorbis"), so ask ffmpeg directly.
+    """
+    try:
+        p = subprocess.Popen([get_encoder_name(), '-encoders'],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except OSError:
+        return False
+    output = p.communicate()[0].decode('utf-8', 'ignore')
+    return any(line.split()[1:2] == [name] for line in output.splitlines())
+
+
+HAS_LIBVORBIS = has_encoder('libvorbis')
 
 
 class UtilityTests(unittest.TestCase):
@@ -181,8 +199,9 @@ if sys.version_info >= (3, 6):
             seg1 = AudioSegment.from_file(self.mp3_path_str)
             from pathlib import Path
             path = Path(tempfile.gettempdir()) / 'pydub-test-export-8ajds.mp3'
+            out_f = None
             try:
-                seg1.export(path, format='mp3')
+                out_f = seg1.export(path, format='mp3')
                 seg2 = AudioSegment.from_file(path, format='mp3')
 
                 self.assertTrue(len(seg1) > 0)
@@ -190,6 +209,8 @@ if sys.version_info >= (3, 6):
                                            len(seg2),
                                            percentage=0.01)
             finally:
+                if out_f:
+                    out_f.close()
                 os.unlink(path)
 
 
@@ -341,7 +362,8 @@ class AudioSegmentTests(unittest.TestCase):
         path = os.path.join(data_dir, base_file)
         base = AudioSegment.from_file(path)
 
-        headers = extract_wav_headers(open(path, 'rb').read())
+        with open(path, 'rb') as f:
+            headers = extract_wav_headers(f.read())
         data16_size = headers[-1].size
         self.assertEqual(len(base.raw_data), data16_size)
         self.assertEqual(base.frame_rate, 192000)
@@ -550,7 +572,8 @@ class AudioSegmentTests(unittest.TestCase):
             if sys.platform == 'win32':
                 tmp_file.close()
 
-            mono.export(tmp_file.name, 'mp3')
+            out_f = mono.export(tmp_file.name, 'mp3')
+            out_f.close()
             monomp3 = AudioSegment.from_mp3(tmp_file.name)
 
             self.assertWithinTolerance(
@@ -740,6 +763,8 @@ class AudioSegmentTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             seg.export(format='raw', parameters=['-ar', '16000', '-ac', '1'])
 
+    @unittest.skipUnless(HAS_LIBVORBIS,
+                         "Unsupported codecs")
     def test_export_as_ogg(self):
         seg = self.seg1
         exported_ogg = seg.export(format='ogg')
@@ -749,6 +774,8 @@ class AudioSegmentTests(unittest.TestCase):
                                    len(seg),
                                    percentage=0.01)
 
+    @unittest.skipUnless(HAS_LIBVORBIS,
+                         "Unsupported codecs")
     def test_export_forced_codec(self):
         seg = self.seg1 + self.seg2
 
@@ -879,6 +906,8 @@ class AudioSegmentTests(unittest.TestCase):
             AudioSegment.from_file(self.ogg_file_path).export(tmp_mp3_file,
                                                               format="mp3")
 
+    @unittest.skipUnless(HAS_LIBVORBIS,
+                         "Unsupported codecs")
     def test_export_mp3_as_ogg(self):
         with NamedTemporaryFile('w+b', suffix='.ogg') as tmp_ogg_file:
             AudioSegment.from_file(self.mp3_file_path).export(tmp_ogg_file,
@@ -896,7 +925,7 @@ class AudioSegmentTests(unittest.TestCase):
             AudioSegment.from_file(self.mp3_file_path).export(tmp_webm_file,
                                                               format="webm")
 
-    @unittest.skipUnless('aac' in get_supported_decoders(),
+    @unittest.skipUnless('aac' in get_supported_decoders() and HAS_LIBVORBIS,
                          "Unsupported codecs")
     def test_export_mp4_as_ogg(self):
         with NamedTemporaryFile('w+b', suffix='.ogg') as tmp_ogg_file:
@@ -1073,7 +1102,7 @@ class AudioSegmentTests(unittest.TestCase):
         # average volume should be reduced
         self.assertTrue(compressed.rms < self.seg1.rms)
 
-    @unittest.skipUnless('aac' in get_supported_decoders(),
+    @unittest.skipUnless('aac' in get_supported_decoders() and HAS_LIBVORBIS,
                          "Unsupported codecs")
     def test_exporting_to_ogg_uses_default_codec_when_codec_param_is_none(self):
         delete = sys.platform != 'win32'
@@ -1186,7 +1215,7 @@ class AudioSegmentTests(unittest.TestCase):
             tmp_wav_file.flush()
             self.assertRaises(CouldntDecodeError, AudioSegment.from_file, tmp_wav_file.name)
             files = os.listdir(tempfile.tempdir)
-            self.assertEquals(files, [os.path.basename(tmp_wav_file.name)])
+            self.assertEqual(files, [os.path.basename(tmp_wav_file.name)])
 
         if sys.platform == 'win32':
             os.remove(tmp_wav_file.name)
@@ -1214,7 +1243,7 @@ class SilenceTests(unittest.TestCase):
 
     def test_split_on_silence_complete_silence(self):
         seg = AudioSegment.silent(5000)
-        self.assertEquals( split_on_silence(seg), [] )
+        self.assertEqual( split_on_silence(seg), [] )
 
     def test_split_on_silence_test1(self):
         self.assertEqual(
@@ -1288,6 +1317,66 @@ class GeneratorTests(unittest.TestCase):
         self.assertAlmostEqual(len(one_sec), 1000)
         self.assertAlmostEqual(len(five_sec), 5000)
         self.assertAlmostEqual(len(half_sec), 500)
+
+
+class FromFileClosesFilesTests(unittest.TestCase):
+    """from_file() must close files it opened itself, on every code path"""
+
+    def setUp(self):
+        import pydub.audio_segment as audio_segment_module
+        self.module = audio_segment_module
+        self.orig_fd_or_path = audio_segment_module._fd_or_path_or_tempfile
+        self.opened = []
+
+        def recording_fd_or_path(*args, **kwargs):
+            fd, close_fd = self.orig_fd_or_path(*args, **kwargs)
+            if close_fd:
+                self.opened.append(fd)
+            return fd, close_fd
+
+        audio_segment_module._fd_or_path_or_tempfile = recording_fd_or_path
+
+    def tearDown(self):
+        self.module._fd_or_path_or_tempfile = self.orig_fd_or_path
+
+    def assertAllClosed(self):
+        self.assertTrue(len(self.opened) > 0)
+        for f in self.opened:
+            self.assertTrue(f.closed, "{0!r} was left open".format(f))
+
+    def test_raw_file_is_closed(self):
+        AudioSegment.from_file(os.path.join(data_dir, 'test1.raw'), format='raw',
+                               sample_width=2, frame_rate=32000, channels=1)
+        self.assertAllClosed()
+
+    def test_raw_file_is_closed_with_start_second_and_duration(self):
+        AudioSegment.from_file(os.path.join(data_dir, 'test1.raw'), format='raw',
+                               sample_width=2, frame_rate=32000, channels=1,
+                               start_second=0.5, duration=0.5)
+        self.assertAllClosed()
+
+    def test_file_is_closed_when_raw_parameters_are_missing(self):
+        with self.assertRaises(KeyError):
+            AudioSegment.from_file(os.path.join(data_dir, 'test1.raw'), format='raw')
+        self.assertAllClosed()
+
+    def test_wav_file_is_closed(self):
+        AudioSegment.from_file(os.path.join(data_dir, 'test1.wav'))
+        self.assertAllClosed()
+
+    def test_mp3_file_is_closed(self):
+        AudioSegment.from_file(os.path.join(data_dir, 'test1.mp3'), duration=0.5)
+        self.assertAllClosed()
+
+    def test_file_is_closed_when_decoding_fails(self):
+        with NamedTemporaryFile('w+b', suffix='.mp3', delete=False) as tmp_file:
+            tmp_file.write("not really an mp3".encode('utf-8'))
+        try:
+            with self.assertRaises(CouldntDecodeError):
+                AudioSegment.from_file(tmp_file.name)
+            self.assertAllClosed()
+        finally:
+            os.unlink(tmp_file.name)
 
 
 class NoConverterTests(unittest.TestCase):
@@ -1381,7 +1470,9 @@ class NoConverterTests(unittest.TestCase):
 
     def test_exporting(self):
         seg = AudioSegment.from_wav(self.wave_file)
-        exported = AudioSegment.from_wav(seg.export(format="wav"))
+        out_f = seg.export(format="wav")
+        exported = AudioSegment.from_wav(out_f)
+        out_f.close()
 
         self.assertEqual(len(exported), len(seg))
 
