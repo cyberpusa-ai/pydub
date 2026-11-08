@@ -1,6 +1,7 @@
 from __future__ import division
 from io import BufferedReader
 
+import errno
 import json
 import os
 import re
@@ -203,6 +204,45 @@ def get_prober_name():
         return "ffprobe"
 
 
+def _get_prober_path():
+    """
+    Return the probe application to run. Uses get_prober_name(), but if that
+    isn't on the PATH and AudioSegment.converter is a path to an executable,
+    looks for ffprobe/avprobe in the same directory first.
+    """
+    prober = get_prober_name()
+    if which(prober):
+        return prober
+
+    from .audio_segment import AudioSegment
+    converter_dir = os.path.dirname(str(AudioSegment.converter))
+    if converter_dir:
+        for name in ("ffprobe", "avprobe"):
+            if os.name == "nt":
+                name += ".exe"
+            candidate = os.path.join(converter_dir, name)
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+    return prober
+
+
+def _popen_prober(command, **kwargs):
+    """
+    Run the probe application, raising a helpful error if it can't be found.
+    """
+    try:
+        return Popen(command, **kwargs)
+    except OSError as e:
+        if e.errno != errno.ENOENT:
+            raise
+        raise e.__class__(
+            e.errno,
+            "Couldn't run {0!r}: pydub needs ffprobe (or avprobe) to read this file. "
+            "Install ffmpeg and make sure ffprobe is on your PATH, or put ffprobe in the "
+            "same directory as AudioSegment.converter".format(command[0]),
+            command[0])
+
+
 def fsdecode(filename):
     """Wrapper for os.fsdecode which was introduced in python 3.2 ."""
 
@@ -251,7 +291,7 @@ def get_extra_info(stderr):
 def mediainfo_json(filepath, read_ahead_limit=-1):
     """Return json dictionary with media info(codec, duration, size, bitrate...) from filepath
     """
-    prober = get_prober_name()
+    prober = _get_prober_path()
     command_args = [
         "-v", "info",
         "-show_format",
@@ -262,7 +302,7 @@ def mediainfo_json(filepath, read_ahead_limit=-1):
         stdin_parameter = None
         stdin_data = None
     except TypeError:
-        if prober == 'ffprobe':
+        if os.path.basename(prober).startswith('ffprobe'):
             command_args += ["-read_ahead_limit", str(read_ahead_limit),
                              "cache:pipe:0"]
         else:
@@ -275,7 +315,7 @@ def mediainfo_json(filepath, read_ahead_limit=-1):
             file.close()
 
     command = [prober, '-of', 'json'] + command_args
-    res = Popen(command, stdin=stdin_parameter, stdout=PIPE, stderr=PIPE)
+    res = _popen_prober(command, stdin=stdin_parameter, stdout=PIPE, stderr=PIPE)
     output, stderr = res.communicate(input=stdin_data)
     output = output.decode("utf-8", 'ignore')
     stderr = stderr.decode("utf-8", 'ignore')
@@ -328,7 +368,7 @@ def mediainfo(filepath):
     """Return dictionary with media info(codec, duration, size, bitrate...) from filepath
     """
 
-    prober = get_prober_name()
+    prober = _get_prober_path()
     command_args = [
         "-v", "quiet",
         "-show_format",
@@ -337,12 +377,12 @@ def mediainfo(filepath):
     ]
 
     command = [prober, '-of', 'old'] + command_args
-    res = Popen(command, stdout=PIPE)
+    res = _popen_prober(command, stdout=PIPE)
     output = res.communicate()[0].decode("utf-8")
 
     if res.returncode != 0:
         command = [prober] + command_args
-        output = Popen(command, stdout=PIPE).communicate()[0].decode("utf-8")
+        output = _popen_prober(command, stdout=PIPE).communicate()[0].decode("utf-8")
 
     rgx = re.compile(r"(?:(?P<inner_dict>.*?):)?(?P<key>.*?)\=(?P<value>.*?)$")
     info = {}

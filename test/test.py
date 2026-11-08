@@ -9,6 +9,7 @@ from tempfile import (
 )
 import tempfile
 import struct
+import warnings
 
 from pydub import AudioSegment
 from pydub.audio_segment import extract_wav_headers
@@ -17,6 +18,8 @@ from pydub.utils import (
     ratio_to_db,
     make_chunks,
     mediainfo,
+    mediainfo_json,
+    which,
     get_encoder_name,
     get_supported_decoders,
     get_supported_encoders,
@@ -1338,6 +1341,59 @@ class NoConverterTests(unittest.TestCase):
 
         seg = AudioSegment.from_file(self.wave_empty, format="wav")
         self.assertTrue(len(seg) == 0)
+
+
+class MissingProberTests(unittest.TestCase):
+
+    def setUp(self):
+        self.mp3_file = os.path.join(data_dir, 'test1.mp3')
+        self.orig_path = os.environ['PATH']
+        self.orig_converter = AudioSegment.converter
+        self.ffmpeg_path = which('ffmpeg')
+        self.ffprobe_path = which('ffprobe')
+        os.environ['PATH'] = os.path.join(data_dir, 'definitely-not-a-dir-asdjklqwop')
+
+    def tearDown(self):
+        os.environ['PATH'] = self.orig_path
+        AudioSegment.converter = self.orig_converter
+
+    def test_missing_prober_raises_helpful_error(self):
+        AudioSegment.converter = "definitely-not-a-path-to-anything-asdjklqwop"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            for func in (mediainfo_json, mediainfo):
+                with self.assertRaises(OSError) as cm:
+                    func(self.mp3_file)
+                self.assertIn("ffprobe", str(cm.exception))
+                self.assertIn("AudioSegment.converter", str(cm.exception))
+
+            with open(self.mp3_file, 'rb') as f:
+                with self.assertRaises(OSError) as cm:
+                    mediainfo_json(f)
+                self.assertIn("AudioSegment.converter", str(cm.exception))
+
+    @unittest.skipUnless(which('ffmpeg') and which('ffprobe'), "requires ffmpeg and ffprobe")
+    def test_prober_found_next_to_converter(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            for name, target in (('ffmpeg', self.ffmpeg_path), ('ffprobe', self.ffprobe_path)):
+                os.symlink(os.path.abspath(target), os.path.join(tmpdir, name))
+            AudioSegment.converter = os.path.join(tmpdir, 'ffmpeg')
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                info = mediainfo_json(self.mp3_file)
+                self.assertEqual(info['streams'][0]['codec_name'], 'mp3')
+                with open(self.mp3_file, 'rb') as f:
+                    info = mediainfo_json(f)
+                self.assertEqual(info['streams'][0]['codec_name'], 'mp3')
+                seg = AudioSegment.from_file(self.mp3_file)
+            self.assertTrue(len(seg) > 1000)
+        finally:
+            for name in ('ffmpeg', 'ffprobe'):
+                if os.path.lexists(os.path.join(tmpdir, name)):
+                    os.remove(os.path.join(tmpdir, name))
+            os.rmdir(tmpdir)
 
 
 class FilterTests(unittest.TestCase):
