@@ -36,6 +36,7 @@ from pydub.exceptions import (
 )
 from pydub.silence import (
     detect_silence,
+    detect_nonsilent,
     split_on_silence,
 )
 from pydub.generators import (
@@ -1254,6 +1255,31 @@ class SilenceTests(unittest.TestCase):
         splits = split_on_silence(self.seg1, min_silence_len=5000, silence_thresh=-200, keep_silence=True)
         lens = [len(split) for split in splits]
         self.assertEqual( lens, [len(self.seg1)] )
+
+    def test_split_on_silence_return_ranges(self):
+        kwargs = dict(min_silence_len=500, silence_thresh=-20)
+        plain = split_on_silence(self.seg1, **kwargs)
+        with_ranges = split_on_silence(self.seg1, return_ranges=True, **kwargs)
+
+        self.assertEqual(len(with_ranges), len(plain))
+        for (chunk, (start, end)), expected in zip(with_ranges, plain):
+            self.assertEqual(chunk, expected)
+            self.assertEqual(chunk, self.seg1[start:end])
+            self.assertTrue(0 <= start < end <= len(self.seg1))
+
+        # ranges include keep_silence, clamped to the segment
+        nonsilent = detect_nonsilent(self.seg1, **kwargs)
+        ranges = [r for _, r in with_ranges]
+        self.assertEqual(ranges[0][0], max(0, nonsilent[0][0] - 100))
+        self.assertEqual(ranges[-1][1], min(len(self.seg1), nonsilent[-1][1] + 100))
+
+        ranges = [r for _, r in split_on_silence(
+            self.seg1, keep_silence=False, return_ranges=True, **kwargs)]
+        self.assertEqual(ranges, nonsilent)
+
+    def test_split_on_silence_return_ranges_complete_silence(self):
+        seg = AudioSegment.silent(5000)
+        self.assertEqual(split_on_silence(seg, return_ranges=True), [])
 
     def test_detect_completely_silent_segment(self):
         seg = AudioSegment.silent(5000)

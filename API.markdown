@@ -675,6 +675,17 @@ Returns list of audio segments from splitting audio_segment on silent sections.
   When the length of the silence is less than the keep_silence duration it is split evenly between the preceding and following non-silent segments.
   If True is specified, all the silence is kept, if False none is kept.
 
+- `return_ranges` | example: `True` | default: False
+  If True, return a list of `(chunk, [start, end])` tuples instead of a list of audio segments. `start` and `end` are the chunk's position in the original audio segment in milliseconds, including any kept silence.
+
+```python
+from pydub import AudioSegment, silence
+
+sound = AudioSegment.from_file("speech.wav")
+for chunk, (start, end) in silence.split_on_silence(sound, return_ranges=True):
+    print(start, end, len(chunk))
+```
+
 ### silence.detect_leading_silence()
 
 Returns the millisecond/index that the leading silence ends. If there is no end it will return the length of the audio_segment.

@@ -110,7 +110,7 @@ def detect_nonsilent(audio_segment, min_silence_len=1000, silence_thresh=-16, se
 
 
 def split_on_silence(audio_segment, min_silence_len=1000, silence_thresh=-16, keep_silence=100,
-                     seek_step=1):
+                     seek_step=1, return_ranges=False):
     """
     Returns list of audio segments from splitting audio_segment on silent sections
 
@@ -132,6 +132,10 @@ def split_on_silence(audio_segment, min_silence_len=1000, silence_thresh=-16, ke
         default: 100ms
 
     seek_step - step size for interating over the segment in ms
+
+    return_ranges - if True, return a list of (chunk, [start, end]) tuples
+        instead, where start and end are the chunk's position in
+        audio_segment in ms (including any kept silence). default: False
     """
 
     # from the itertools documentation
@@ -157,8 +161,19 @@ def split_on_silence(audio_segment, min_silence_len=1000, silence_thresh=-16, ke
             range_i[1] = (last_end+next_start)//2
             range_ii[0] = range_i[1]
 
+    output_ranges = [
+        [ max(start,0), min(end,len(audio_segment)) ]
+        for start,end in output_ranges
+    ]
+
+    if return_ranges:
+        return [
+            (audio_segment[start:end], [start, end])
+            for start,end in output_ranges
+        ]
+
     return [
-        audio_segment[ max(start,0) : min(end,len(audio_segment)) ]
+        audio_segment[start:end]
         for start,end in output_ranges
     ]
 
