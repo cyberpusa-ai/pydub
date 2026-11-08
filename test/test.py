@@ -1452,6 +1452,26 @@ class MissingProberTests(unittest.TestCase):
             os.rmdir(tmpdir)
 
 
+class PlaybackTests(unittest.TestCase):
+
+    def test_ffplay_is_quiet(self):
+        from pydub import playback
+        calls = []
+        orig_call = playback.subprocess.call
+        playback.subprocess.call = lambda cmd, *a, **kw: calls.append(cmd)
+        try:
+            playback._play_with_ffplay(AudioSegment.silent(duration=10))
+        finally:
+            playback.subprocess.call = orig_call
+
+        self.assertEqual(len(calls), 1)
+        cmd = calls[0]
+        self.assertIn("-loglevel", cmd)
+        self.assertEqual(cmd[cmd.index("-loglevel") + 1], "error")
+        # the file to play stays the last argument
+        self.assertTrue(cmd[-1].endswith(".wav"))
+
+
 class FilterTests(unittest.TestCase):
 
     def setUp(self):
