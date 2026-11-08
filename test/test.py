@@ -653,6 +653,35 @@ class AudioSegmentTests(unittest.TestCase):
                                    percentage=0.01)
         self.assertEqual(seg_exported_wav.sample_width, 4)
 
+    def test_export_as_wav_with_tags(self):
+        tags = {'artist': 'Mozart', 'title': 'The Magic Flute'}
+
+        delete = sys.platform != 'win32'
+
+        with NamedTemporaryFile('w+b', suffix='.wav', delete=delete) as tmp_wav_file:
+            self.seg1.export(tmp_wav_file, format="wav", tags=tags)
+
+            if sys.platform == 'win32':
+                tmp_wav_file.close()
+
+            info_tags = mediainfo(filepath=tmp_wav_file.name)["TAG"]
+            self.assertEqual(info_tags["artist"], "Mozart")
+            self.assertEqual(info_tags["title"], "The Magic Flute")
+
+            if sys.platform == 'win32':
+                os.remove(tmp_wav_file.name)
+
+    def test_export_as_wav_with_tags_keeps_sample_width(self):
+        seg = Sine(440).to_audio_segment(duration=100)
+
+        for sample_width in (1, 2, 4):
+            original = seg.set_sample_width(sample_width)
+            exported = original.export(format='wav', tags={'artist': 'x'})
+            seg_exported_wav = AudioSegment.from_wav(exported)
+
+            self.assertEqual(seg_exported_wav.sample_width, sample_width)
+            self.assertEqual(seg_exported_wav.raw_data, original.raw_data)
+
     def test_export_as_wav_with_parameters(self):
         seg = self.seg1
         exported_wav = seg.export(format='wav', parameters=['-ar', '16000', '-ac', '1'])

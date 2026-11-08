@@ -878,7 +878,7 @@ class AudioSegment(object):
             return out_f
 
         # wav with no ffmpeg parameters can just be written directly to out_f
-        easy_wav = format == "wav" and codec is None and parameters is None
+        easy_wav = format == "wav" and codec is None and parameters is None and tags is None
 
         if easy_wav:
             data = out_f
@@ -916,6 +916,13 @@ class AudioSegment(object):
 
         if codec is None:
             codec = self.DEFAULT_CODECS.get(format, None)
+
+        if codec is None and format == "wav":
+            # keep the sample width; ffmpeg's wav muxer defaults to pcm_s16le
+            if self.sample_width == 1:
+                codec = "pcm_u8"
+            else:
+                codec = "pcm_s%dle" % (self.sample_width * 8)
 
         if cover is not None:
             if cover.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')) and format == "mp3":
