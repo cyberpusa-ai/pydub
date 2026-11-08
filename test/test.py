@@ -20,6 +20,8 @@ from pydub.utils import (
     get_encoder_name,
     get_supported_decoders,
     get_supported_encoders,
+    stereo_to_ms,
+    ms_to_stereo,
 )
 from pydub.exceptions import (
     InvalidTag,
@@ -57,6 +59,31 @@ class UtilityTests(unittest.TestCase):
         self.assertEqual(12, ratio_to_db(db_to_float(12)))
         self.assertEqual(3, db_to_float(ratio_to_db(3, using_amplitude=False), using_amplitude=False))
         self.assertEqual(12, ratio_to_db(db_to_float(12, using_amplitude=False), using_amplitude=False))
+
+    def test_stereo_to_ms_and_back(self):
+        left = Sine(440).to_audio_segment(duration=500, volume=-20)
+        right = Sine(660).to_audio_segment(duration=500, volume=-20)
+        stereo = AudioSegment.from_mono_audiosegments(left, right)
+
+        mid_side = stereo_to_ms(stereo)
+        self.assertTrue(isinstance(mid_side, AudioSegment))
+        self.assertEqual(mid_side.channels, 2)
+        self.assertEqual(len(mid_side), len(stereo))
+
+        back = ms_to_stereo(mid_side)
+        self.assertTrue(isinstance(back, AudioSegment))
+        self.assertEqual(back.channels, 2)
+        self.assertEqual(len(back), len(stereo))
+        new_left, new_right = back.split_to_mono()
+        self.assertAlmostEqual(new_left.dBFS - left.dBFS, 3, places=0)
+        self.assertAlmostEqual(new_right.dBFS - right.dBFS, 3, places=0)
+
+    def test_stereo_to_ms_identical_channels_has_silent_side(self):
+        mono = Sine(440).to_audio_segment(duration=500, volume=-20)
+        stereo = AudioSegment.from_mono_audiosegments(mono, mono)
+        mid, side = stereo_to_ms(stereo).split_to_mono()
+        self.assertEqual(side.rms, 0)
+        self.assertTrue(mid.dBFS > mono.dBFS)
 
 
 if sys.version_info >= (3, 6):
