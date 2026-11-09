@@ -91,7 +91,7 @@ The first argument is the path (as a string) of the file to read, **or** a file 
 **Supported keyword arguments**:
 
 - `format` | example: `"aif"` | default: autodetected
-  Format of the output file. Supports `"wav"` and `"raw"` natively, requires ffmpeg for all other formats. `"raw"` files require 3 additional keyword arguments, `sample_width`, `frame_rate`, and `channels`, denoted below with: **`raw` only**. This extra info is required because raw audio files do not have headers to include this info in the file itself like wav files do.
+  Format of the output file. Supports `"wav"` and `"raw"` natively, requires ffmpeg for all other formats. A few common file extensions that are not ffmpeg demuxer names are translated: `"m4a"` is read as `"mp4"`, `"wave"` as `"wav"` and `"wma"` as `"asf"`. `"raw"` files require 3 additional keyword arguments, `sample_width`, `frame_rate`, and `channels`, denoted below with: **`raw` only**. This extra info is required because raw audio files do not have headers to include this info in the file itself like wav files do.
 - `sample_width` | example: `2`
   **`raw` only** — Use `1` for 8-bit audio `2` for 16-bit (CD quality) and `4` for 32-bit. It’s the number of bytes per sample.
 - `channels` | example: `1`
@@ -135,7 +135,7 @@ The first argument is the location (as a string) to write the output, **or** a f
 **Supported keyword arguments**:
 
 - `format` | example: `"aif"` | default: `"mp3"`
-  Format of the output file. Supports `"wav"` and `"raw"` natively, requires ffmpeg for all other formats.
+  Format of the output file. Supports `"wav"` and `"raw"` natively, requires ffmpeg for all other formats. A few common file extensions that are not ffmpeg muxer names are translated before they are passed to ffmpeg: `"aac"` is written with the `"adts"` muxer, `"m4a"` with `"ipod"` and `"wma"` with `"asf"`. The codec is ffmpeg's default for that muxer unless you pass `codec`.
 - `codec` | example: `"libvorbis"`
   For formats that may contain content encoded with different codecs, you can specify the codec you'd like the encoder to use. For example, the "ogg" format is often used with the "libvorbis" codec. (requires ffmpeg)
 - `bitrate` | example: `"128k"` or `128000`

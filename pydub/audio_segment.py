@@ -84,6 +84,15 @@ def classproperty(func):
 AUDIO_FILE_EXT_ALIASES = {
     "m4a": "mp4",
     "wave": "wav",
+    "wma": "asf",
+}
+
+# file extensions that are not ffmpeg muxer names, mapped to the muxer
+# passed to ffmpeg's -f when exporting
+EXPORT_FORMAT_MUXERS = {
+    "aac": "adts",
+    "m4a": "ipod",
+    "wma": "asf",
 }
 
 WavSubChunk = namedtuple('WavSubChunk', ['id', 'position', 'size'])
@@ -1030,8 +1039,9 @@ class AudioSegment(object):
         if sys.platform == 'darwin' and codec == 'mp3':
             conversion_command.extend(["-write_xing", "0"])
 
+        muxer = EXPORT_FORMAT_MUXERS.get(format, format)
         conversion_command.extend([
-            "-f", format, output.name,  # output options (filename last)
+            "-f", muxer, output.name,  # output options (filename last)
         ])
 
         log_conversion(conversion_command)
