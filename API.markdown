@@ -150,6 +150,10 @@ The first argument is the location (as a string) to write the output, **or** a f
 
 Very long audio (more than 4 GiB of raw data, about 6.7 hours of 44.1 kHz 16-bit stereo) doesn't fit in a standard wav file. Exporting it to other formats works as usual, but `export(format="wav")` with no `codec` or `parameters` raises `CouldntEncodeError`. Use `export(format="wav", parameters=["-rf64", "auto"])` to have ffmpeg write an RF64 wav instead.
 
+AAC works with `format="aac"` (a raw ADTS stream) or `format="m4a"` (an MP4/M4A container). Both use ffmpeg's built-in `aac` encoder unless you pass a `codec`: `sound.export("out.m4a", format="m4a", bitrate="192k")`.
+
+If the export fails (for example ffmpeg returns an error), a file that `export()` opened from a path is closed and removed before the error is raised, so no empty file is left behind. File objects you pass in are left open and untouched.
+
 24-bit audio is held as 32-bit internally (see `set_sample_width()`), so `export(format="wav")` writes a 32-bit wav. To write a 24-bit wav, pass the codec: `export("out.wav", format="wav", codec="pcm_s24le")` (requires ffmpeg). The samples round-trip unchanged.
 
 
