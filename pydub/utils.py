@@ -243,6 +243,28 @@ def _popen_prober(command, **kwargs):
             command[0])
 
 
+def _popen_converter(command, **kwargs):
+    """
+    Run the converter (ffmpeg/avconv), raising a helpful error if it can't be
+    found. The error keeps the original exception's type, so existing
+    "except OSError" / "except FileNotFoundError" handlers still catch it.
+    """
+    try:
+        return Popen(command, **kwargs)
+    except OSError as e:
+        if e.errno != errno.ENOENT:
+            raise
+        err = e.__class__(
+            e.errno,
+            "Couldn't run {0!r}: pydub needs ffmpeg (or avconv) to decode and encode "
+            "anything other than wav. Install ffmpeg and make sure it is on your PATH, "
+            "or set AudioSegment.converter to the full path of the "
+            "executable".format(command[0]),
+            command[0])
+        err.__cause__ = e
+        raise err
+
+
 def fsdecode(filename):
     """Wrapper for os.fsdecode which was introduced in python 3.2 ."""
 
@@ -436,7 +458,7 @@ def cache_codecs(function):
 def get_supported_codecs():
     encoder = get_encoder_name()
     command = [encoder, "-codecs"]
-    res = Popen(command, stdout=PIPE, stderr=PIPE)
+    res = _popen_converter(command, stdout=PIPE, stderr=PIPE)
     output = res.communicate()[0].decode("utf-8")
     if res.returncode != 0:
         return []

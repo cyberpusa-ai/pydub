@@ -1,4 +1,5 @@
 from functools import partial
+import errno
 import os
 import sys
 import unittest
@@ -11,6 +12,7 @@ import tempfile
 import struct
 import subprocess
 import warnings
+from io import BytesIO
 
 from pydub import AudioSegment
 from pydub.audio_segment import extract_wav_headers
@@ -1632,6 +1634,50 @@ class MissingProberTests(unittest.TestCase):
                 if os.path.lexists(os.path.join(tmpdir, name)):
                     os.remove(os.path.join(tmpdir, name))
             os.rmdir(tmpdir)
+
+
+class MissingConverterTests(unittest.TestCase):
+
+    def setUp(self):
+        self.mp3_file = os.path.join(data_dir, 'test1.mp3')
+        self.orig_converter = AudioSegment.converter
+        self.missing = os.path.join(data_dir, 'definitely-not-a-dir-asdjklqwop', 'ffmpeg')
+        AudioSegment.converter = self.missing
+
+    def tearDown(self):
+        AudioSegment.converter = self.orig_converter
+
+    def assertHelpfulError(self, cm):
+        # same type as before, so existing except clauses keep working
+        self.assertIsInstance(cm.exception, OSError)
+        self.assertEqual(cm.exception.errno, errno.ENOENT)
+        self.assertEqual(cm.exception.filename, self.missing)
+        self.assertIsInstance(cm.exception.__cause__, OSError)
+        message = str(cm.exception)
+        self.assertIn(self.missing, message)
+        self.assertIn("ffmpeg", message)
+        self.assertIn("AudioSegment.converter", message)
+
+    def test_from_file_missing_converter(self):
+        with self.assertRaises(OSError) as cm:
+            AudioSegment.from_file(self.mp3_file, format="mp3")
+        self.assertHelpfulError(cm)
+
+    def test_from_file_using_temporary_files_missing_converter(self):
+        with self.assertRaises(OSError) as cm:
+            AudioSegment.from_file_using_temporary_files(self.mp3_file, format="mp3")
+        self.assertHelpfulError(cm)
+
+    def test_export_missing_converter(self):
+        seg = AudioSegment.silent(duration=100)
+        with self.assertRaises(OSError) as cm:
+            seg.export(BytesIO(), format="mp3")
+        self.assertHelpfulError(cm)
+
+    def test_wav_does_not_need_converter(self):
+        seg = AudioSegment.silent(duration=100)
+        out = seg.export(BytesIO(), format="wav")
+        self.assertEqual(len(AudioSegment.from_file(out, format="wav")), 100)
 
 
 class PlaybackTests(unittest.TestCase):
