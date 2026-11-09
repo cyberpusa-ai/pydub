@@ -1470,6 +1470,59 @@ class CompressedWavTests(unittest.TestCase):
         self.assertDecodes('pcm_s24le', 4)
         self.assertDecodes('pcm_s32le', 4)
 
+class ContainerFormatAliasTests(unittest.TestCase):
+    """
+    Common file extensions that are not ffmpeg muxer/demuxer names
+    (aac, m4a, wma) must still work as format= (#625, #363).
+    """
+
+    def setUp(self):
+        self.tmp_dir = mkdtemp()
+        self.seg = Sine(440).to_audio_segment(duration=1000).apply_gain(-6)
+
+    def tearDown(self):
+        for name in os.listdir(self.tmp_dir):
+            os.remove(os.path.join(self.tmp_dir, name))
+        os.rmdir(self.tmp_dir)
+
+    def assertRoundTrips(self, format, codec_name):
+        path = os.path.join(self.tmp_dir, 'out.' + format)
+        self.seg.export(path, format=format).close()
+        self.assertTrue(os.path.getsize(path) > 0)
+        info = mediainfo_json(path)
+        self.assertEqual(info['streams'][0]['codec_name'], codec_name)
+        seg = AudioSegment.from_file(path, format=format)
+        # encoder delay, padding and framing shift length by a few tens of ms
+        self.assertTrue(900 <= len(seg) <= 1100, len(seg))
+        self.assertAlmostEqual(seg.dBFS, self.seg.dBFS, places=0)
+        return info
+
+    @unittest.skipUnless(has_encoder('aac'), "Unsupported codecs")
+    def test_export_aac(self):
+        info = self.assertRoundTrips('aac', 'aac')
+        self.assertEqual(info['format']['format_name'], 'aac')
+
+    @unittest.skipUnless(has_encoder('aac'), "Unsupported codecs")
+    def test_export_m4a(self):
+        info = self.assertRoundTrips('m4a', 'aac')
+        self.assertIn('m4a', info['format']['format_name'])
+
+    @unittest.skipUnless(has_encoder('wmav2'), "Unsupported codecs")
+    def test_export_wma(self):
+        info = self.assertRoundTrips('wma', 'wmav2')
+        self.assertEqual(info['format']['format_name'], 'asf')
+
+    @unittest.skipUnless(has_encoder('wmav2'), "Unsupported codecs")
+    def test_from_file_wma(self):
+        path = os.path.join(self.tmp_dir, 'in.wma')
+        self.seg.export(path, format='asf').close()
+        with open(path, 'rb') as f:
+            seg = AudioSegment.from_file(f, format='wma')
+        self.assertTrue(900 <= len(seg) <= 1100, len(seg))
+        seg = AudioSegment.from_file_using_temporary_files(path, format='wma')
+        self.assertTrue(900 <= len(seg) <= 1100, len(seg))
+
+
 class NoConverterTests(unittest.TestCase):
 
     def setUp(self):
