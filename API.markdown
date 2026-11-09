@@ -149,6 +149,8 @@ The first argument is the location (as a string) to write the output, **or** a f
 - `cover` | example: `"/path/to/imgfile.png"`
   Allows you to supply a cover image (path to the image file). Currently, only MP3 files allow this keyword argument. Cover image must be a jpeg, png, bmp, or tiff file.
 
+Very long audio (more than 4 GiB of raw data, about 6.7 hours of 44.1 kHz 16-bit stereo) doesn't fit in a standard wav file. Exporting it to other formats works as usual, but `export(format="wav")` with no `codec` or `parameters` raises `CouldntEncodeError`. Use `export(format="wav", parameters=["-rf64", "auto"])` to have ffmpeg write an RF64 wav instead.
+
 
 ### AudioSegment.empty()
 

@@ -86,6 +86,14 @@ AUDIO_FILE_EXT_ALIASES = {
     "wave": "wav",
 }
 
+# The RIFF size field of a wav file is a 32-bit unsigned int and also covers
+# the 36 header bytes in front of the data chunk, so this is the most pcm
+# data the wave module can write. Bigger exports bypass the temporary wav.
+WAV_MAX_DATA_BYTES = 0xFFFFFFFF - 36
+
+# ffmpeg raw input formats for each sample width (pydub stores signed pcm)
+RAW_PCM_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
+
 WavSubChunk = namedtuple('WavSubChunk', ['id', 'position', 'size'])
 WavData = namedtuple('WavData', ['audio_format', 'channels', 'sample_rate',
                                  'bits_per_sample', 'raw_data'])
@@ -942,6 +950,19 @@ class AudioSegment(object):
                     'specify an ffmpeg raw format like format="s16le" instead '
                     'or call export(format="raw") with no codec or parameters')
 
+        # wav with no ffmpeg parameters can just be written directly to out_f
+        easy_wav = format == "wav" and codec is None and parameters is None
+
+        # too much audio for a wav header, hand ffmpeg raw pcm instead
+        too_big_for_wav = len(self._data) > WAV_MAX_DATA_BYTES
+
+        if easy_wav and too_big_for_wav:
+            raise CouldntEncodeError(
+                "Audio is too long for a standard wav file ({0} bytes of audio data, "
+                "the limit is {1}). Use export(format='wav', parameters=['-rf64', 'auto']) "
+                "to write an RF64 wav with ffmpeg, or export to another format.".format(
+                    len(self._data), WAV_MAX_DATA_BYTES))
+
         out_f, _ = _fd_or_path_or_tempfile(out_f, 'wb+')
         out_f.seek(0)
 
@@ -950,28 +971,35 @@ class AudioSegment(object):
             out_f.seek(0)
             return out_f
 
-        # wav with no ffmpeg parameters can just be written directly to out_f
-        easy_wav = format == "wav" and codec is None and parameters is None
-
         if easy_wav:
             data = out_f
         else:
             data = NamedTemporaryFile(mode="wb", delete=False)
 
-        pcm_for_wav = self._data
-        if self.sample_width == 1:
-            # convert to unsigned integers for wav
-            pcm_for_wav = audioop.bias(self._data, 1, 128)
+        if too_big_for_wav:
+            data.write(self._data)
+            data.close()
+            input_options = [
+                "-f", RAW_PCM_FORMATS[self.sample_width],
+                "-ar", str(self.frame_rate),
+                "-ac", str(self.channels),
+            ]
+        else:
+            pcm_for_wav = self._data
+            if self.sample_width == 1:
+                # convert to unsigned integers for wav
+                pcm_for_wav = audioop.bias(self._data, 1, 128)
 
-        wave_data = wave.open(data, 'wb')
-        wave_data.setnchannels(self.channels)
-        wave_data.setsampwidth(self.sample_width)
-        wave_data.setframerate(self.frame_rate)
-        # For some reason packing the wave header struct with
-        # a float in python 2 doesn't throw an exception
-        wave_data.setnframes(int(self.frame_count()))
-        wave_data.writeframesraw(pcm_for_wav)
-        wave_data.close()
+            wave_data = wave.open(data, 'wb')
+            wave_data.setnchannels(self.channels)
+            wave_data.setsampwidth(self.sample_width)
+            wave_data.setframerate(self.frame_rate)
+            # For some reason packing the wave header struct with
+            # a float in python 2 doesn't throw an exception
+            wave_data.setnframes(int(self.frame_count()))
+            wave_data.writeframesraw(pcm_for_wav)
+            wave_data.close()
+            input_options = ["-f", "wav"]
 
         # for easy wav files, we're done (wav data is written directly to out_f)
         if easy_wav:
@@ -984,7 +1012,8 @@ class AudioSegment(object):
         conversion_command = [
             self.converter,
             '-y',  # always overwrite existing files
-            "-f", "wav", "-i", data.name,  # input options (filename last)
+        ] + input_options + [
+            "-i", data.name,  # input options (filename last)
         ]
 
         if codec is None:
