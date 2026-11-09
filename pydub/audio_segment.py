@@ -530,28 +530,50 @@ class AudioSegment(object):
                                    "frame_width": 2})
 
     @classmethod
-    def from_mono_audiosegments(cls, *mono_segments):
+    def from_mono_audiosegments(cls, *mono_segments, **kwargs):
+        """
+        Combine mono AudioSegments into one multi-channel AudioSegment.
+
+        All segments must have the same frame count (after being brought to a
+        common frame rate and sample width). Pass fill_up=True to instead pad
+        the shorter segments with silence at the end.
+        """
+        fill_up = kwargs.pop("fill_up", False)
+        if kwargs:
+            raise TypeError("from_mono_audiosegments() got unexpected keyword arguments: {0}".format(
+                ", ".join(sorted(kwargs))))
+
         if not len(mono_segments):
             raise ValueError("At least one AudioSegment instance is required")
 
-        segs = cls._sync(*mono_segments)
+        for i, seg in enumerate(mono_segments):
+            if seg.channels != 1:
+                raise ValueError(
+                    "AudioSegment.from_mono_audiosegments requires all arguments are mono AudioSegment "
+                    "instances (segment {0} has {1} channels)".format(i, seg.channels))
 
-        if segs[0].channels != 1:
-            raise ValueError(
-                "AudioSegment.from_mono_audiosegments requires all arguments are mono AudioSegment instances")
+        segs = cls._sync(*mono_segments)
 
         channels = len(segs)
         sample_width = segs[0].sample_width
         frame_rate = segs[0].frame_rate
 
-        frame_count = max(int(seg.frame_count()) for seg in segs)
+        frame_counts = [int(seg.frame_count()) for seg in segs]
+        frame_count = max(frame_counts)
+        if not fill_up and min(frame_counts) != frame_count:
+            raise ValueError(
+                "AudioSegment.from_mono_audiosegments requires all segments to have the same length, "
+                "got frame counts {0} at {1} Hz. Pass fill_up=True to pad the shorter segments with "
+                "silence".format(frame_counts, frame_rate))
+
+        # the buffer starts out as silence, so shorter segments are padded at the end
         data = array.array(
             segs[0].array_type,
             b'\0' * (frame_count * sample_width * channels)
         )
 
         for i, seg in enumerate(segs):
-            data[i::channels] = seg.get_array_of_samples()
+            data[i:frame_counts[i] * channels:channels] = seg.get_array_of_samples()
 
         return cls(
             data,
