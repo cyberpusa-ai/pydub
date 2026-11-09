@@ -249,6 +249,17 @@ Windows:
 
 `AudioSegment` objects are [immutable](http://www.devshed.com/c/a/Python/String-and-List-Python-Object-Types/1/)
 
+### 24-bit audio
+
+pydub holds 24-bit audio as 32-bit samples (`audioop` doesn't support 24-bit), so
+`sample_width` is `4` and `export(format="wav")` writes a 32-bit wav, even after
+`set_sample_width(3)`. To write a 24-bit wav, ask ffmpeg for the codec:
+
+```python
+song = AudioSegment.from_file("test/data/test1-24bit.wav")
+song.export("out.wav", format="wav", codec="pcm_s24le")
+```
+
 
 ### Ogg exporting and default codecs
 
