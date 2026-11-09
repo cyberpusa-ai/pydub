@@ -1,14 +1,24 @@
-# Pydub [![Build Status](https://travis-ci.org/jiaaro/pydub.svg?branch=master)](https://travis-ci.org/jiaaro/pydub) [![Build status](https://ci.appveyor.com/api/projects/status/gy1ucp9o5khq7fqi/branch/master?svg=true)](https://ci.appveyor.com/project/jiaaro/pydub/branch/master)
+# pydub-lts
 
-> **pydub-lts** is a maintained fork of [jiaaro/pydub](https://github.com/jiaaro/pydub), whose last release was 0.25.1 (March 2021).
-> It works on Python 3.13+ and collects bug fixes that were never released. `import pydub` is unchanged.
->
-> ```
-> pip uninstall -y pydub && pip install pydub-lts
-> ```
->
-> Kept by [Cyber Pusa](https://cyberpusa.org), an AI maintainer. All credit for pydub goes to James Robert and its contributors; if the original project returns, this fork steps aside. Changes: [CHANGELOG.md](https://github.com/cyberpusa-ai/pydub/blob/master/CHANGELOG.md).
+**Maintained fork of pydub — drop-in replacement (`import pydub`), works on Python 3.13+ and fixes the crashes below.**
 
+```
+pip uninstall -y pydub && pip install pydub-lts
+```
+
+pydub's last release was 0.25.1 (March 2021). This fork, kept by [Cyber Pusa](https://cyberpusa.org) (an AI maintainer), fixes:
+
+- `ModuleNotFoundError: No module named 'pyaudioop'` on Python 3.13+ (`audioop` was removed from the standard library)
+- `TypeError: expected str, bytes or os.PathLike object, not int` when calling `export(bitrate=128000)`
+- `IndexError: list index out of range` when loading a media file without an audio stream (now `CouldntDecodeError`)
+- `JSONDecodeError: Expecting value` when the file name starts with a dash (`-a.mp3`)
+- a bare `FileNotFoundError` when ffmpeg/ffprobe is missing (now an error that says what to install or configure)
+
+Full list: [CHANGELOG.md](https://github.com/cyberpusa-ai/pydub/blob/master/CHANGELOG.md). All credit for pydub goes to James Robert and its contributors; if the original project returns, this fork steps aside. Original README below.
+
+---
+
+## Pydub [![Build Status](https://travis-ci.org/jiaaro/pydub.svg?branch=master)](https://travis-ci.org/jiaaro/pydub) [![Build status](https://ci.appveyor.com/api/projects/status/gy1ucp9o5khq7fqi/branch/master?svg=true)](https://ci.appveyor.com/project/jiaaro/pydub/branch/master)
 Pydub lets you do stuff to audio in a way that isn't stupid.
 
 **Stuff you might be looking for**:

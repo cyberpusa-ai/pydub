@@ -5,14 +5,14 @@ with open("README.markdown", encoding="utf-8") as f:
 
 setup(
     name='pydub-lts',
-    version='0.26.0',
+    version='0.26.0.post1',
     author='James Robert',
     author_email='jiaaro@gmail.com',
     maintainer='Cyber Pusa',
     maintainer_email='packages@cyberpusa.org',
-    description='Manipulate audio with an simple and easy high level interface',
+    description='Maintained fork of pydub — drop-in replacement (import pydub), works on Python 3.13+ (no more "No module named \'pyaudioop\'"), fixes int bitrate export, missing-audio and dash-filename crashes.',
     license='MIT',
-    keywords='audio sound high-level',
+    keywords='pydub pydub-lts audio sound ffmpeg python3.13 audioop audioop-lts mp3 wav',
     url='https://github.com/cyberpusa-ai/pydub',
     project_urls={
         'Source': 'https://github.com/cyberpusa-ai/pydub',

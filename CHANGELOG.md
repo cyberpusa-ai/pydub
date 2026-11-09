@@ -1,16 +1,19 @@
+# v0.26.0.post1
+- Package metadata only (PyPI summary, keywords, README); code identical to 0.26.0
+
 # v0.26.0 (first release as `pydub-lts`)
 Published as `pydub-lts` on PyPI; the import name is still `pydub`.
 
 Python 3.13+
-- Works on Python 3.13+, where `audioop` was removed: installs `audioop-lts` there, and the pure-Python fallback now works too (#4), including ulaw/alaw (#12)
+- Works on Python 3.13+, where `audioop` was removed. Upstream fails on import with `ModuleNotFoundError: No module named 'pyaudioop'`; pydub-lts installs `audioop-lts` there, and the pure-Python fallback now works too (#4), including ulaw/alaw (#12)
 
 Fixes
-- `AudioSegment.export()` accepts an int `bitrate` instead of crashing with a `TypeError` (#3)
+- `AudioSegment.export(bitrate=128000)` works instead of `TypeError: expected str, bytes or os.PathLike object, not int` (#3)
 - A missing `ffprobe` raises an error that names it and how to configure it; `ffprobe`/`avprobe` next to a configured `AudioSegment.converter` is used when not on the PATH (#5)
-- A missing ffmpeg/avconv converter raises a helpful error (#23)
+- A missing ffmpeg/avconv converter raises an error that says what to install or configure, instead of a bare `FileNotFoundError: [Errno 2] No such file or directory` (#23)
 - `from_file()` `parameters` are passed to ffmpeg before the output target, so they take effect (#7)
-- Files whose name starts with a dash (`-a.mp3`) load (#9)
-- Media files with no audio stream raise `CouldntDecodeError` (#2)
+- Files whose name starts with a dash (`-a.mp3`) load instead of failing with `json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)` (#9)
+- Media files with no audio stream raise `CouldntDecodeError` instead of `IndexError: list index out of range` (#2)
 - Compressed WAV codecs decode with the width from `sample_fmt` (#20)
 - `from_file()` always closes files it opened (#11)
 - `play()` works on Windows: the ffplay temp file is closed before export (#19); ffplay runs quietly (#10)
