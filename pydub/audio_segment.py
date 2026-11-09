@@ -1,6 +1,7 @@
 from __future__ import division
 
 import array
+from decimal import Decimal
 import os
 import subprocess
 from tempfile import NamedTemporaryFile
@@ -147,6 +148,29 @@ def fix_wav_headers(data):
     # Set the data size in the data subchunk
     pos = headers[-1].position
     data[pos + 4:pos + 8] = struct.pack('<I', len(data) - pos - 8)
+
+
+def _input_seek_is_exact(info):
+    """
+    True if ffmpeg decodes this file sample-identically after an input-side
+    seek (see AudioSegment.from_file). Takes the ffprobe json returned by
+    mediainfo_json.
+    """
+    format_name = info.get('format', {}).get('format_name', '')
+    audio_streams = [x for x in info.get('streams', [])
+                     if x.get('codec_type') == 'audio']
+    if not audio_streams:
+        return False
+    codec_name = audio_streams[0].get('codec_name', '')
+    if codec_name == 'mp3':
+        return format_name == 'mp3'
+    if codec_name == 'vorbis':
+        return format_name in ('ogg', 'matroska,webm')
+    if codec_name == 'flac':
+        return format_name == 'flac'
+    if codec_name.startswith('pcm_'):
+        return format_name == 'wav'
+    return False
 
 
 class AudioSegment(object):
@@ -709,6 +733,9 @@ class AudioSegment(object):
                 # force audio decoder
                 conversion_command += ["-acodec", codec]
 
+            # position of the input file arguments; an input-side -ss goes here
+            input_index = len(conversion_command)
+
             read_ahead_limit = kwargs.get('read_ahead_limit', -1)
             if filename:
                 conversion_command += ["-i", _safe_input_path(filename)]
@@ -749,13 +776,34 @@ class AudioSegment(object):
 
                 conversion_command += ["-acodec", acodec]
 
+            # Seek in two steps (#729): a coarse input-side -ss lets ffmpeg skip
+            # to shortly before start_second without decoding everything before
+            # it, and a fine output-side -ss drops the rest so the result stays
+            # sample-identical to output-only seeking. The margin covers decoder
+            # warm-up after a seek: the mp3 bit reservoir can reach back several
+            # frames (~0.4 s at 8 kHz) and vorbis blocks can last ~1 s. The input
+            # seek is rounded down to whole seconds so it falls on a sample
+            # boundary; a fractional split is rounded twice by ffmpeg and can
+            # shift the result by one sample. Only formats checked to decode
+            # identically after a seek use it (aac, opus, ac3, mp2 and flac in
+            # ogg do not), anything else keeps output-only seeking.
+            output_seek = None
+            if start_second is not None:
+                output_seek = str(start_second)
+                if info and _input_seek_is_exact(info):
+                    margin = 2  # seconds
+                    input_seek = int(max(start_second - margin, 0))
+                    if input_seek > 0:
+                        conversion_command[input_index:input_index] = ["-ss", str(input_seek)]
+                        output_seek = '{0:f}'.format(Decimal(repr(float(start_second))) - input_seek)
+
             conversion_command += [
                 "-vn",  # Drop any video streams if there are any
                 "-f", "wav"  # output options (filename last)
             ]
 
-            if start_second is not None:
-                conversion_command += ["-ss", str(start_second)]
+            if output_seek is not None:
+                conversion_command += ["-ss", output_seek]
 
             if duration is not None:
                 conversion_command += ["-t", str(duration)]
