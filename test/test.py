@@ -12,6 +12,7 @@ import tempfile
 import struct
 import subprocess
 import warnings
+import types
 from io import BytesIO
 
 from pydub import AudioSegment
@@ -1850,6 +1851,88 @@ class PlaybackTests(unittest.TestCase):
                           self._run_ffplay_tracking_temp_files, fake_call)
         self.assertEqual(len(seen), 1)
         self.assertFalse(os.path.exists(seen[0]))
+
+
+    def _run_with_fake_pyaudio(self, func, *args, **kwargs):
+        # record what pydub passes to pyaudio.PyAudio().open() without needing
+        # pyaudio (or a sound card) installed
+        from pydub import playback
+        opened = []
+
+        class FakeStream(object):
+            def write(self, data):
+                pass
+
+            def stop_stream(self):
+                pass
+
+            def close(self):
+                pass
+
+        class FakePyAudio(object):
+            def get_format_from_width(self, width):
+                return width
+
+            def open(self, **kw):
+                opened.append(kw)
+                return FakeStream()
+
+            def terminate(self):
+                pass
+
+        fake = types.ModuleType("pyaudio")
+        fake.PyAudio = FakePyAudio
+        saved = dict((name, sys.modules.get(name))
+                     for name in ("pyaudio", "simpleaudio"))
+        sys.modules["pyaudio"] = fake
+        # make simpleaudio unavailable so play() falls through to pyaudio
+        sys.modules["simpleaudio"] = None
+        orig_call = playback.subprocess.call
+        playback.subprocess.call = lambda *a, **kw: self.fail("ffplay used")
+        try:
+            func(*args, **kwargs)
+        finally:
+            playback.subprocess.call = orig_call
+            for name, mod in saved.items():
+                if mod is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = mod
+        return opened
+
+    def test_pyaudio_default_output_device(self):
+        from pydub import playback
+        seg = AudioSegment.silent(duration=10)
+        opened = self._run_with_fake_pyaudio(playback.play, seg)
+        self.assertEqual(len(opened), 1)
+        self.assertNotIn("output_device_index", opened[0])
+        self.assertTrue(opened[0]["output"])
+
+    def test_pyaudio_output_device_index(self):
+        from pydub import playback
+        seg = AudioSegment.silent(duration=10)
+        opened = self._run_with_fake_pyaudio(playback.play, seg,
+                                             output_device_index=3)
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0]["output_device_index"], 3)
+
+        # device 0 is a valid index, not "unset"
+        opened = self._run_with_fake_pyaudio(playback._play_with_pyaudio, seg,
+                                             output_device_index=0)
+        self.assertEqual(opened[0]["output_device_index"], 0)
+
+    def test_output_device_index_skips_simpleaudio(self):
+        # simpleaudio can't pick a device, so don't let it swallow the request
+        from pydub import playback
+        seg = AudioSegment.silent(duration=10)
+        orig = playback._play_with_simpleaudio
+        playback._play_with_simpleaudio = lambda s: self.fail("simpleaudio used")
+        try:
+            opened = self._run_with_fake_pyaudio(playback.play, seg,
+                                                 output_device_index=1)
+        finally:
+            playback._play_with_simpleaudio = orig
+        self.assertEqual(opened[0]["output_device_index"], 1)
 
 
 class FilterTests(unittest.TestCase):
