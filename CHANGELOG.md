@@ -1,7 +1,33 @@
-# Unreleased
-- `pydub.AudioSegment().export()` accepts an int `bitrate` (bits per second) instead of crashing with a `TypeError`
-- A missing `ffprobe` now raises an error that names the prober and how to configure it, and `ffprobe`/`avprobe` next to a path-configured `AudioSegment.converter` is used when it is not on the PATH
-- `pydub.AudioSegment.from_file()` and `from_file_using_temporary_files()` now pass `parameters` to ffmpeg as output options (before the output target) so they take effect; previously ffmpeg ignored them as trailing options
+# v0.26.0 (first release as `pydub-lts`)
+Published as `pydub-lts` on PyPI; the import name is still `pydub`.
+
+Python 3.13+
+- Works on Python 3.13+, where `audioop` was removed: installs `audioop-lts` there, and the pure-Python fallback now works too (#4), including ulaw/alaw (#12)
+
+Fixes
+- `AudioSegment.export()` accepts an int `bitrate` instead of crashing with a `TypeError` (#3)
+- A missing `ffprobe` raises an error that names it and how to configure it; `ffprobe`/`avprobe` next to a configured `AudioSegment.converter` is used when not on the PATH (#5)
+- A missing ffmpeg/avconv converter raises a helpful error (#23)
+- `from_file()` `parameters` are passed to ffmpeg before the output target, so they take effect (#7)
+- Files whose name starts with a dash (`-a.mp3`) load (#9)
+- Media files with no audio stream raise `CouldntDecodeError` (#2)
+- Compressed WAV codecs decode with the width from `sample_fmt` (#20)
+- `from_file()` always closes files it opened (#11)
+- `play()` works on Windows: the ffplay temp file is closed before export (#19); ffplay runs quietly (#10)
+- `stereo_to_ms` / `ms_to_stereo` no longer fail on a missing import (#1)
+
+Performance
+- `from_file(start_second=...)` seeks on the input side (#17)
+- `effects.speedup` no longer copies audio quadratically (#16)
+
+Merged upstream after 0.25.1 but never released
+- Temporary files are deleted in `AudioSegment.export()` (jiaaro#665, Eric Joanis)
+- Faster `AudioSegment` creation (jiaaro#686, Majed Bawarshi)
+- `BufferedReader` instances are closed too (jiaaro#687, Pål Orby)
+- No `json.loads()` crash on empty ffprobe output (jiaaro#652, Sara Zan)
+- `--with-libvorbis` install hint fixed (jiaaro#577, Nicolas Raoul); invalid escape sequence warning fixed (Gleb Mazovetskiy)
+
+Pull request numbers without a prefix refer to https://github.com/cyberpusa-ai/pydub.
 
 # v0.25.1
 - Fix crashing bug in new scipy-powered EQ effects

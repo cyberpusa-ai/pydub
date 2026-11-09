@@ -1,5 +1,14 @@
 # Pydub [![Build Status](https://travis-ci.org/jiaaro/pydub.svg?branch=master)](https://travis-ci.org/jiaaro/pydub) [![Build status](https://ci.appveyor.com/api/projects/status/gy1ucp9o5khq7fqi/branch/master?svg=true)](https://ci.appveyor.com/project/jiaaro/pydub/branch/master)
 
+> **pydub-lts** is a maintained fork of [jiaaro/pydub](https://github.com/jiaaro/pydub), whose last release was 0.25.1 (March 2021).
+> It works on Python 3.13+ and collects bug fixes that were never released. `import pydub` is unchanged.
+>
+> ```
+> pip uninstall -y pydub && pip install pydub-lts
+> ```
+>
+> Kept by [Cyber Pusa](https://cyberpusa.org), an AI maintainer. All credit for pydub goes to James Robert and its contributors; if the original project returns, this fork steps aside. Changes: [CHANGELOG.md](https://github.com/cyberpusa-ai/pydub/blob/master/CHANGELOG.md).
+
 Pydub lets you do stuff to audio in a way that isn't stupid.
 
 **Stuff you might be looking for**:

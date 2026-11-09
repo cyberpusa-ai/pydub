@@ -2062,6 +2062,13 @@ class PyAudioopTests(unittest.TestCase):
                 for call in calls:
                     expected = getattr(audioop, call[0])(*call[1:])
                     actual = getattr(op, call[0])(*call[1:])
+                    if call[0] == "tomono" and expected != actual:
+                        # C compilers may fuse l*fac1 + r*fac2 into one FMA (e.g. clang on arm64),
+                        # which can land one step lower after floor(); allow 1 LSB there.
+                        fmt = "<%d%s" % (len(expected) // size, {1: "b", 2: "h", 4: "i"}[size])
+                        diffs = [abs(a - b) for a, b in zip(struct.unpack(fmt, expected), struct.unpack(fmt, actual))]
+                        self.assertLessEqual(max(diffs), 1, (call[0], size, n) + call[3:])
+                        continue
                     self.assertEqual(expected, actual, (call[0], size, n) + call[3:])
 
         # every u-law/A-law code, and every 8 and 16 bit sample
