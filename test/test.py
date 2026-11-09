@@ -1601,6 +1601,63 @@ class PlaybackTests(unittest.TestCase):
         # the file to play stays the last argument
         self.assertTrue(cmd[-1].endswith(".wav"))
 
+    def _run_ffplay_tracking_temp_files(self, fake_call):
+        # Windows can't reopen a NamedTemporaryFile by name while it is still
+        # open, so record every temp file and check it's closed before export()
+        from pydub import playback
+        opened = []
+        orig_ntf = playback.NamedTemporaryFile
+        orig_call = playback.subprocess.call
+
+        def tracking_ntf(*args, **kwargs):
+            f = orig_ntf(*args, **kwargs)
+            opened.append(f)
+            return f
+
+        seg = AudioSegment.silent(duration=10)
+        orig_export = seg.export
+
+        def checking_export(out_f, *args, **kwargs):
+            self.assertTrue(all(f.closed for f in opened))
+            return orig_export(out_f, *args, **kwargs)
+
+        seg.export = checking_export
+        playback.NamedTemporaryFile = tracking_ntf
+        playback.subprocess.call = fake_call
+        try:
+            playback._play_with_ffplay(seg)
+        finally:
+            playback.NamedTemporaryFile = orig_ntf
+            playback.subprocess.call = orig_call
+        return opened
+
+    def test_ffplay_temp_file_closed_before_export_and_removed(self):
+        seen = []
+
+        def fake_call(cmd, *a, **kw):
+            path = cmd[-1]
+            self.assertTrue(os.path.exists(path))
+            with open(path, "rb") as f:
+                self.assertEqual(f.read(4), b"RIFF")
+            seen.append(path)
+
+        opened = self._run_ffplay_tracking_temp_files(fake_call)
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(seen, [opened[0].name])
+        self.assertFalse(os.path.exists(seen[0]))
+
+    def test_ffplay_temp_file_removed_when_player_fails(self):
+        seen = []
+
+        def fake_call(cmd, *a, **kw):
+            seen.append(cmd[-1])
+            raise KeyboardInterrupt()
+
+        self.assertRaises(KeyboardInterrupt,
+                          self._run_ffplay_tracking_temp_files, fake_call)
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(os.path.exists(seen[0]))
+
 
 class FilterTests(unittest.TestCase):
 
