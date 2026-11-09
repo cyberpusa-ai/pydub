@@ -3,6 +3,7 @@ from __future__ import division
 import array
 from decimal import Decimal
 import os
+import re
 import subprocess
 from tempfile import NamedTemporaryFile
 import wave
@@ -171,6 +172,31 @@ def _input_seek_is_exact(info):
     if codec_name.startswith('pcm_'):
         return format_name == 'wav'
     return False
+
+
+def _decoded_bits_per_sample(stream):
+    """
+    Pick the sample width (in bits) to ask ffmpeg for when decoding stream.
+
+    bits_per_sample is the width stored in the file, which only matches the
+    decoded width for plain PCM. Compressed codecs, including mu-law and A-law
+    (8 bits stored, 16 bits decoded) and ADPCM (4 bits stored), go by the
+    decoder's sample_fmt instead.
+    """
+    bits_per_sample = stream.get('bits_per_sample')
+    codec_name = stream.get('codec_name') or ''
+    if (re.match(r'pcm_[suf]\d+', codec_name) and
+            bits_per_sample in (8, 16, 24, 32)):
+        return bits_per_sample
+
+    sample_fmt = stream.get('sample_fmt') or ''
+    if sample_fmt == 'u8':
+        return 8
+    if sample_fmt in ('s16', 's16p'):
+        return 16
+    if sample_fmt in ('s32', 's32p', 'flt', 'fltp'):
+        return 32
+    return 16
 
 
 class AudioSegment(object):
@@ -768,7 +794,7 @@ class AudioSegment(object):
                         audio_codec in ['mp3', 'mp4', 'aac', 'webm', 'ogg']):
                     bits_per_sample = 16
                 else:
-                    bits_per_sample = audio_streams[0]['bits_per_sample']
+                    bits_per_sample = _decoded_bits_per_sample(audio_streams[0])
                 if bits_per_sample == 8:
                     acodec = 'pcm_u8'
                 else:
