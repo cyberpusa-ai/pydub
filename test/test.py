@@ -1083,6 +1083,84 @@ class AudioSegmentTests(unittest.TestCase):
         self.assertEqual(stereo_sound.dBFS, monoseg1.dBFS)
         self.assertEqual(len(stereo_sound), len(monoseg1))
 
+    def test_from_mono_audiosegments_three_channels(self):
+        left = Sine(440).to_audio_segment(duration=500)
+        center = Sine(660).to_audio_segment(duration=500)
+        right = Sine(880).to_audio_segment(duration=500)
+        seg = AudioSegment.from_mono_audiosegments(left, center, right)
+
+        self.assertEqual(seg.channels, 3)
+        self.assertEqual(seg.frame_count(), left.frame_count())
+        samples = seg.get_array_of_samples()
+        self.assertEqual(samples[0::3], left.get_array_of_samples())
+        self.assertEqual(samples[1::3], center.get_array_of_samples())
+        self.assertEqual(samples[2::3], right.get_array_of_samples())
+
+    def test_from_mono_audiosegments_rejects_different_lengths(self):
+        long_seg = Sine(440).to_audio_segment(duration=1000)
+        short_seg = Sine(440).to_audio_segment(duration=500)
+
+        for segs in [(long_seg, short_seg), (short_seg, long_seg)]:
+            with self.assertRaises(ValueError) as cm:
+                AudioSegment.from_mono_audiosegments(*segs)
+            self.assertIn("same length", str(cm.exception))
+            self.assertIn("fill_up", str(cm.exception))
+
+    def test_from_mono_audiosegments_rejects_non_mono(self):
+        mono = Sine(440).to_audio_segment(duration=500)
+        stereo = mono.set_channels(2)
+
+        for segs in [(mono, stereo), (stereo, mono), (stereo,)]:
+            with self.assertRaises(ValueError) as cm:
+                AudioSegment.from_mono_audiosegments(*segs)
+            self.assertIn("mono", str(cm.exception))
+
+    def test_from_mono_audiosegments_requires_a_segment(self):
+        self.assertRaises(ValueError, AudioSegment.from_mono_audiosegments)
+
+    def test_from_mono_audiosegments_rejects_unknown_kwargs(self):
+        mono = Sine(440).to_audio_segment(duration=500)
+        self.assertRaises(TypeError, AudioSegment.from_mono_audiosegments, mono, mono, fill=True)
+
+    def test_from_mono_audiosegments_fill_up(self):
+        long_seg = Sine(440).to_audio_segment(duration=1000)
+        short_seg = Sine(880).to_audio_segment(duration=400)
+        n = int(short_seg.frame_count())
+
+        seg = AudioSegment.from_mono_audiosegments(long_seg, short_seg, fill_up=True)
+        self.assertEqual(seg.channels, 2)
+        self.assertEqual(seg.frame_count(), long_seg.frame_count())
+        left, right = seg.split_to_mono()
+        self.assertEqual(left.raw_data, long_seg.raw_data)
+        self.assertEqual(right[:400].raw_data, short_seg.raw_data)
+        padding = right.get_array_of_samples()[n:]
+        self.assertEqual(len(padding), int(long_seg.frame_count()) - n)
+        self.assertTrue(all(sample == 0 for sample in padding))
+
+        # padding goes on whichever channel is shorter
+        seg = AudioSegment.from_mono_audiosegments(short_seg, long_seg, fill_up=True)
+        left, right = seg.split_to_mono()
+        self.assertEqual(right.raw_data, long_seg.raw_data)
+        self.assertEqual(left[:400].raw_data, short_seg.raw_data)
+        self.assertEqual(left[400:].rms, 0)
+
+    def test_from_mono_audiosegments_fill_up_keeps_equal_lengths_unchanged(self):
+        left = Sine(440).to_audio_segment(duration=500)
+        right = Sine(880).to_audio_segment(duration=500)
+        self.assertEqual(
+            AudioSegment.from_mono_audiosegments(left, right, fill_up=True),
+            AudioSegment.from_mono_audiosegments(left, right))
+
+    def test_from_mono_audiosegments_syncs_frame_rate_and_sample_width(self):
+        hi = Sine(440, sample_rate=44100, bit_depth=16).to_audio_segment(duration=500)
+        lo = Sine(440, sample_rate=22050, bit_depth=8).to_audio_segment(duration=500)
+        seg = AudioSegment.from_mono_audiosegments(hi, lo, fill_up=True)
+
+        self.assertEqual(seg.channels, 2)
+        self.assertEqual(seg.frame_rate, 44100)
+        self.assertEqual(seg.sample_width, 2)
+        self.assertEqual(seg.frame_count(), hi.frame_count())
+
     def test_fade_raises_exception_when_duration_is_negative(self):
         seg = self.seg1
         func = partial(seg.fade,

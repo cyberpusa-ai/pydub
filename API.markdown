@@ -209,6 +209,23 @@ right_channel = AudioSegment.from_wav("sound1.wav")
 stereo_sound = AudioSegment.from_mono_audiosegments(left_channel, right_channel)
 ```
 
+Segments with different frame rates or sample widths are first converted to the highest of each. A `ValueError` is raised if any segment is not mono, or if the segments still differ in length (unless `fill_up=True`).
+
+**Supported keyword arguments**:
+
+- `fill_up` | example: `True` | default: `False`
+  Pad the shorter segments with silence at the end so they all match the longest one, instead of raising a `ValueError`.
+
+```python
+from pydub import AudioSegment
+
+voice = AudioSegment.from_wav("voice.wav")  # 10 seconds
+music = AudioSegment.from_wav("music.wav")  # 12 seconds
+
+# voice channel gets 2 seconds of silence at the end
+stereo_sound = AudioSegment.from_mono_audiosegments(voice, music, fill_up=True)
+```
+
 ### AudioSegment(…).dBFS
 
 Returns the loudness of the `AudioSegment` in dBFS (db relative to the maximum possible loudness). A Square wave at maximum amplitude will be roughly 0 dBFS (maximum loudness), whereas a Sine Wave at maximum amplitude will be roughly -3 dBFS.
