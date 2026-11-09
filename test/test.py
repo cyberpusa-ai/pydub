@@ -15,6 +15,7 @@ import warnings
 from io import BytesIO
 
 from pydub import AudioSegment
+from pydub import audio_segment
 from pydub.audio_segment import extract_wav_headers
 from pydub.utils import (
     db_to_float,
@@ -34,6 +35,7 @@ from pydub.exceptions import (
     InvalidID3TagVersion,
     InvalidDuration,
     CouldntDecodeError,
+    CouldntEncodeError,
     MissingAudioParameter,
 )
 from pydub.silence import (
@@ -1471,6 +1473,75 @@ class CompressedWavTests(unittest.TestCase):
         # 24-bit WAV is decoded as 32-bit, as before
         self.assertDecodes('pcm_s24le', 4)
         self.assertDecodes('pcm_s32le', 4)
+
+class LargeExportTests(unittest.TestCase):
+    """
+    More than 4 GiB of pcm can't be put in a wav header, so export() must
+    hand ffmpeg raw pcm instead of a temporary wav (#602). The limit is
+    lowered here so the tests don't need gigabytes of audio.
+    """
+
+    def setUp(self):
+        self.orig_limit = audio_segment.WAV_MAX_DATA_BYTES
+        audio_segment.WAV_MAX_DATA_BYTES = 4096
+        self.tmp_dir = mkdtemp()
+        self.seg = Sine(440).to_audio_segment(duration=2000).apply_gain(-6)
+        self.seg = AudioSegment.from_mono_audiosegments(self.seg, self.seg.invert_phase())
+
+    def tearDown(self):
+        audio_segment.WAV_MAX_DATA_BYTES = self.orig_limit
+        for name in os.listdir(self.tmp_dir):
+            os.remove(os.path.join(self.tmp_dir, name))
+        os.rmdir(self.tmp_dir)
+
+    def test_export_mp3_above_wav_limit(self):
+        self.assertTrue(len(self.seg.raw_data) > audio_segment.WAV_MAX_DATA_BYTES)
+        exported = AudioSegment.from_mp3(self.seg.export(format='mp3'))
+        self.assertEqual(exported.channels, 2)
+        self.assertEqual(exported.frame_rate, self.seg.frame_rate)
+        self.assertTrue(abs(len(exported) - len(self.seg)) < 100,
+                        (len(exported), len(self.seg)))
+        self.assertAlmostEqual(exported.dBFS, self.seg.dBFS, places=0)
+
+    def test_raw_input_is_sample_identical(self):
+        for sample_width, codec in [(1, 'pcm_u8'), (2, 'pcm_s16le'), (4, 'pcm_s32le')]:
+            seg = self.seg.set_sample_width(sample_width)
+            exported = AudioSegment.from_wav(seg.export(format='wav', codec=codec))
+            self.assertEqual(exported.sample_width, sample_width)
+            self.assertEqual(exported.channels, 2)
+            self.assertEqual(exported.raw_data, seg.raw_data)
+
+    def test_easy_wav_above_limit_raises(self):
+        path = os.path.join(self.tmp_dir, 'big.wav')
+        with self.assertRaises(CouldntEncodeError) as cm:
+            self.seg.export(path, format='wav')
+        self.assertIn('-rf64', str(cm.exception))
+        self.assertFalse(os.path.exists(path))
+
+    def test_rf64_wav_above_limit(self):
+        path = os.path.join(self.tmp_dir, 'big.wav')
+        self.seg.export(path, format='wav', parameters=['-rf64', 'auto']).close()
+        exported = AudioSegment.from_file(path)
+        self.assertEqual(exported.raw_data, self.seg.raw_data)
+
+    def test_input_format_switches_at_limit(self):
+        commands = []
+        orig_log = audio_segment.log_conversion
+        audio_segment.log_conversion = commands.append
+        try:
+            seg = self.seg[:10]
+            audio_segment.WAV_MAX_DATA_BYTES = len(seg.raw_data)
+            seg.export(format='mp3').close()
+            audio_segment.WAV_MAX_DATA_BYTES = len(seg.raw_data) - 1
+            seg.export(format='mp3').close()
+        finally:
+            audio_segment.log_conversion = orig_log
+
+        # at the limit the command is unchanged
+        self.assertEqual(commands[0][2:5], ['-f', 'wav', '-i'])
+        self.assertEqual(commands[1][2:9],
+                         ['-f', 's16le', '-ar', '44100', '-ac', '2', '-i'])
+
 
 class NoConverterTests(unittest.TestCase):
 
