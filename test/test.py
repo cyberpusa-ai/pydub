@@ -1418,6 +1418,58 @@ class FromFileClosesFilesTests(unittest.TestCase):
             os.unlink(tmp_file.name)
 
 
+
+class CompressedWavTests(unittest.TestCase):
+    """
+    The stored bits_per_sample of compressed codecs in WAV (mu-law, A-law,
+    ADPCM) is not the decoded width, so from_file() must not use it (#417).
+    """
+
+    def setUp(self):
+        self.tmp_dir = mkdtemp()
+        self.seg = Sine(440).to_audio_segment(duration=1000).apply_gain(-6)
+        self.seg = self.seg.set_frame_rate(8000)
+
+    def tearDown(self):
+        for name in os.listdir(self.tmp_dir):
+            os.remove(os.path.join(self.tmp_dir, name))
+        os.rmdir(self.tmp_dir)
+
+    def encode(self, codec):
+        path = os.path.join(self.tmp_dir, codec + '.wav')
+        self.seg.export(path, format='wav', codec=codec).close()
+        return path
+
+    def assertDecodes(self, codec, sample_width):
+        path = self.encode(codec)
+        self.assertEqual(mediainfo_json(path)['streams'][0]['codec_name'], codec)
+        seg = AudioSegment.from_file(path)
+        self.assertEqual(seg.sample_width, sample_width)
+        self.assertEqual(seg.frame_rate, 8000)
+        self.assertEqual(seg.channels, 1)
+        # ADPCM pads the last block, so allow a few tens of ms
+        self.assertTrue(1000 <= len(seg) <= 1050, len(seg))
+        self.assertAlmostEqual(seg.dBFS, self.seg.dBFS, places=0)
+
+    def test_mulaw_decodes_to_16_bit(self):
+        self.assertDecodes('pcm_mulaw', 2)
+
+    def test_alaw_decodes_to_16_bit(self):
+        self.assertDecodes('pcm_alaw', 2)
+
+    def test_adpcm_ima_wav(self):
+        self.assertDecodes('adpcm_ima_wav', 2)
+
+    def test_adpcm_ms(self):
+        self.assertDecodes('adpcm_ms', 2)
+
+    def test_plain_pcm_widths_unchanged(self):
+        self.assertDecodes('pcm_u8', 1)
+        self.assertDecodes('pcm_s16le', 2)
+        # 24-bit WAV is decoded as 32-bit, as before
+        self.assertDecodes('pcm_s24le', 4)
+        self.assertDecodes('pcm_s32le', 4)
+
 class NoConverterTests(unittest.TestCase):
 
     def setUp(self):
