@@ -24,14 +24,18 @@ def _play_with_ffplay(seg):
         os.remove(f.name)
 
 
-def _play_with_pyaudio(seg):
+def _play_with_pyaudio(seg, output_device_index=None):
     import pyaudio
 
     p = pyaudio.PyAudio()
+    open_kwargs = {}
+    if output_device_index is not None:
+        open_kwargs["output_device_index"] = output_device_index
     stream = p.open(format=p.get_format_from_width(seg.sample_width),
                     channels=seg.channels,
                     rate=seg.frame_rate,
-                    output=True)
+                    output=True,
+                    **open_kwargs)
 
     # Just in case there were any exceptions/interrupts, we release the resource
     # So as not to raise OSError: Device Unavailable should play() be used again
@@ -56,20 +60,25 @@ def _play_with_simpleaudio(seg):
     )
 
 
-def play(audio_segment):
-    try:
-        playback = _play_with_simpleaudio(audio_segment)
+def play(audio_segment, output_device_index=None):
+    """
+    output_device_index: PyAudio output device to play on. Only pyaudio can
+    select a device, so simpleaudio is skipped when it's set; ffplay ignores it.
+    """
+    if output_device_index is None:
         try:
-            playback.wait_done()
-        except KeyboardInterrupt:
-            playback.stop()
-    except ImportError:
-        pass
-    else:
-        return
+            playback = _play_with_simpleaudio(audio_segment)
+            try:
+                playback.wait_done()
+            except KeyboardInterrupt:
+                playback.stop()
+        except ImportError:
+            pass
+        else:
+            return
 
     try:
-        _play_with_pyaudio(audio_segment)
+        _play_with_pyaudio(audio_segment, output_device_index)
         return
     except ImportError:
         pass

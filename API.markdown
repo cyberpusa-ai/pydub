@@ -6,7 +6,6 @@ If you're looking for some functionality in particular, it's a good idea to take
 
 Currently Undocumented:
 
-- Playback (`pydub.playback`)
 - Signal Processing (compression, EQ, normalize, speed change - `pydub.effects`, `pydub.scipy_effects`)
 - Signal generators (Sine, Square, Sawtooth, Whitenoise, etc - `pydub.generators`)
 - Effect registration system (basically the `pydub.utils.register_pydub_effect` decorator)
@@ -699,3 +698,25 @@ print(silence.detect_leading_silence(AudioSegment.silent(2000)))
 
 - `chunk_size` | example: `5` | default: 10
   Size of the step for checking for silence in milliseconds. Smaller is more precise. Must be a positive whole number.
+
+## Playback
+
+### playback.play()
+
+Plays an `AudioSegment` and blocks until it's done. Uses `simpleaudio` if it's installed, otherwise `pyaudio`, otherwise `ffplay`.
+
+```python
+from pydub import AudioSegment
+from pydub.playback import play
+
+sound = AudioSegment.from_file("/path/to/sound.wav", format="wav")
+play(sound)
+
+# play on a specific sound card (requires pyaudio)
+play(sound, output_device_index=2)
+```
+
+**Supported keyword arguments**:
+
+- `output_device_index` | example: `2` | default: `None` (the system default output)
+  Index of the PyAudio output device to play on (list them with `pyaudio.PyAudio().get_device_info_by_index(i)`). Only `pyaudio` can select a device, so `simpleaudio` is skipped when this is set. If `pyaudio` isn't installed, `ffplay` plays on the default device and the index is ignored.
