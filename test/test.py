@@ -1083,6 +1083,45 @@ class AudioSegmentTests(unittest.TestCase):
         self.assertWithinTolerance(
             len(self.seg1) / 2, len(speedup_seg), percentage=0.02)
 
+    def test_speedup_matches_chained_append(self):
+        # speedup() used to build its output with repeated append() calls,
+        # which is quadratic (#736). Make sure the faster implementation
+        # produces exactly the same audio.
+        def speedup_with_append(seg, playback_speed, chunk_size, crossfade):
+            atk = 1.0 / playback_speed
+            if playback_speed < 2.0:
+                ms_to_remove_per_chunk = int(chunk_size * (1 - atk) / atk)
+            else:
+                ms_to_remove_per_chunk = int(chunk_size)
+                chunk_size = int(atk * chunk_size / (1 - atk))
+            crossfade = min(crossfade, ms_to_remove_per_chunk - 1)
+            chunks = make_chunks(seg, chunk_size + ms_to_remove_per_chunk)
+            ms_to_remove_per_chunk -= crossfade
+            last_chunk = chunks[-1]
+            chunks = [chunk[:-ms_to_remove_per_chunk] for chunk in chunks[:-1]]
+            out = chunks[0]
+            for chunk in chunks[1:]:
+                out = out.append(chunk, crossfade=crossfade)
+            return out + last_chunk
+
+        segs = [
+            self.seg1[:3000],
+            self.seg1[:3000].set_channels(1).set_sample_width(1),
+            WhiteNoise().to_audio_segment(duration=2017).set_frame_rate(11025),
+        ]
+        settings = [
+            (1.5, 150, 25), (1.1, 150, 25), (2.0, 150, 25), (3.0, 150, 25),
+            (1.5, 150, 0), (1.25, 50, 10), (1.5, 37, 13), (1.5, 150, 100),
+        ]
+        for seg in segs:
+            for playback_speed, chunk_size, crossfade in settings:
+                expected = speedup_with_append(seg, playback_speed, chunk_size, crossfade)
+                actual = seg.speedup(playback_speed, chunk_size, crossfade)
+                self.assertEqual(expected.raw_data, actual.raw_data)
+                self.assertEqual(expected.frame_rate, actual.frame_rate)
+                self.assertEqual(expected.sample_width, actual.sample_width)
+                self.assertEqual(expected.channels, actual.channels)
+
     def test_dBFS(self):
         seg_8bit = self.seg1.set_sample_width(1)
         self.assertWithinTolerance(seg_8bit.dBFS, -18.06, tolerance=1.5)
