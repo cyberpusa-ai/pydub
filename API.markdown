@@ -151,6 +151,8 @@ The first argument is the location (as a string) to write the output, **or** a f
 
 Very long audio (more than 4 GiB of raw data, about 6.7 hours of 44.1 kHz 16-bit stereo) doesn't fit in a standard wav file. Exporting it to other formats works as usual, but `export(format="wav")` with no `codec` or `parameters` raises `CouldntEncodeError`. Use `export(format="wav", parameters=["-rf64", "auto"])` to have ffmpeg write an RF64 wav instead.
 
+24-bit audio is held as 32-bit internally (see `set_sample_width()`), so `export(format="wav")` writes a 32-bit wav. To write a 24-bit wav, pass the codec: `export("out.wav", format="wav", codec="pcm_s24le")` (requires ffmpeg). The samples round-trip unchanged.
+
 
 ### AudioSegment.empty()
 
@@ -476,6 +478,8 @@ Make a copy of this `AudioSegment` that plays backwards. Useful for Pink Floyd, 
 ### AudioSegment(…).set_sample_width()
 
 Creates an equivalent version of this `AudioSegment` with the specified sample width (in bytes). Increasing this value does not generally cause a reduction in quality. Reducing it *definitely* does cause a loss in quality. Higher Sample width means more dynamic range.
+
+A sample width of 3 (24-bit) is stored as 4 (32-bit), because `audioop` can't work with 24-bit samples, so `set_sample_width(3).sample_width` is `4`. The values keep 24-bit precision, but a plain wav export writes them as 32-bit. Use `export(format="wav", codec="pcm_s24le")` to write a 24-bit wav.
 
 ### AudioSegment(…).set_frame_rate()
 

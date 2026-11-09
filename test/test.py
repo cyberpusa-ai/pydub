@@ -330,6 +330,30 @@ class AudioSegmentTests(unittest.TestCase):
         # the data length should have grown by exactly 4:3 (24 bits turn into 32 bits)
         self.assertEqual(len(seg24.raw_data) * 3, len24 * 4)
 
+    def test_export_24_bit_wav(self):
+        # 24-bit audio is held as 32-bit, so a plain wav export is 32-bit.
+        # codec='pcm_s24le' writes a real 24-bit wav without losing samples.
+        seg24 = AudioSegment.from_file(os.path.join(data_dir, 'test1-24bit.wav'))
+        self.assertEqual(seg24.sample_width, 4)
+
+        import shutil
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp_dir, 'out24.wav')
+            seg24.export(path, format='wav', codec='pcm_s24le').close()
+
+            info = mediainfo(path)
+            self.assertEqual(info['codec_name'], 'pcm_s24le')
+            self.assertEqual(info['bits_per_sample'], '24')
+
+            reloaded = AudioSegment.from_file(path)
+            self.assertEqual(reloaded.sample_width, 4)
+            self.assertEqual(reloaded.frame_rate, seg24.frame_rate)
+            self.assertEqual(reloaded.channels, seg24.channels)
+            self.assertEqual(reloaded.raw_data, seg24.raw_data)
+        finally:
+            shutil.rmtree(tmp_dir)
+
     def test_8_bit_audio(self):
         original_path = os.path.join(data_dir,'test1.wav')
         original_segment = AudioSegment.from_file(original_path)
