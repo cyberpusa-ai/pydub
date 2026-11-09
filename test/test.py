@@ -1667,6 +1667,12 @@ class PartialAudioSegmentLoadTests(unittest.TestCase):
         self.assertEqual(len(partial_seg1), len(partial_seg2))
         self.assertEqual(partial_seg1._data, partial_seg2._data)
 
+    def test_partial_load_small_start_second_and_duration_equals_cropped_mp3_audio_segment(self):
+        partial_seg1 = AudioSegment.from_file(self.mp3_path_str)[10:1010]
+        partial_seg2 = AudioSegment.from_file(self.mp3_path_str, start_second=0.01, duration=1.)
+        self.assertEqual(len(partial_seg1), len(partial_seg2))
+        self.assertEqual(partial_seg1._data, partial_seg2._data)
+
     def test_partial_load_duration_equals_cropped_wav_audio_segment(self):
         partial_seg1 = AudioSegment.from_file(self.wave_path_str)[:1000]
         partial_seg2 = AudioSegment.from_file(self.wave_path_str, duration=1.)
@@ -1702,6 +1708,69 @@ class PartialAudioSegmentLoadTests(unittest.TestCase):
         partial_seg2 = AudioSegment.from_file(self.raw_path_str, format="raw", sample_width=2, frame_rate=32000, channels=2, start_second=1., duration=1.)
         self.assertEqual(len(partial_seg1), len(partial_seg2))
         self.assertEqual(partial_seg1._data, partial_seg2._data)
+
+    def _from_file_logging_command(self, *args, **kwargs):
+        # returns the segment and the ffmpeg command from_file() ran
+        import logging
+        records = []
+        handler = logging.Handler()
+        handler.emit = records.append
+        logger = logging.getLogger("pydub.converter")
+        old_level = logger.level
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
+        try:
+            seg = AudioSegment.from_file(*args, **kwargs)
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(old_level)
+        commands = [r.args[0] for r in records if r.msg.startswith("subprocess.call")]
+        return seg, eval(commands[-1])
+
+    def _from_file_output_seek_only(self, *args, **kwargs):
+        import pydub.audio_segment
+        orig = pydub.audio_segment._input_seek_is_exact
+        pydub.audio_segment._input_seek_is_exact = lambda info: False
+        try:
+            return AudioSegment.from_file(*args, **kwargs)
+        finally:
+            pydub.audio_segment._input_seek_is_exact = orig
+
+    def test_partial_load_seeks_input_and_matches_output_seeking(self):
+        # #729: seek on the input side too so ffmpeg does not decode everything
+        # before start_second, with identical audio. (A wav given by path is
+        # read without ffmpeg, so wav is checked through a file object.)
+        sources = [(self.mp3_path_str, False), (self.mp3_path_str, True),
+                   (self.wave_path_str, True)]
+        for path, as_file in sources:
+            for start_second, duration in [(5.25, None), (6, 1.5), (4.14401, 1.), (3.0001, None)]:
+                with open(path, "rb") as f:
+                    expected = self._from_file_output_seek_only(
+                        f if as_file else path, start_second=start_second, duration=duration)
+                with open(path, "rb") as f:
+                    seg, command = self._from_file_logging_command(
+                        f if as_file else path, start_second=start_second, duration=duration)
+                self.assertTrue(len(seg) > 0)
+                self.assertEqual(expected._data, seg._data)
+                j = command.index("-ss")
+                self.assertTrue(j < command.index("-i"))
+                self.assertEqual(command[j + 1], str(int(start_second - 2)))
+                self.assertNotIn("e-", " ".join(command))
+
+    def test_partial_load_near_start_seeks_output_only(self):
+        seg, command = self._from_file_logging_command(self.mp3_path_str, start_second=1.5)
+        self.assertEqual(command.count("-ss"), 1)
+        self.assertTrue(command.index("-ss") > command.index("-i"))
+        self.assertEqual(AudioSegment.from_file(self.mp3_path_str)[1500:]._data, seg._data)
+
+    def test_partial_load_unchecked_format_seeks_output_only(self):
+        # aac (and opus, ac3, mp2, flac in ogg) decode slightly differently
+        # after an input seek, so they keep output-only seeking
+        path = os.path.join(data_dir, 'format_test.m4a')
+        seg, command = self._from_file_logging_command(path, start_second=5.5)
+        self.assertEqual(command.count("-ss"), 1)
+        self.assertTrue(command.index("-ss") > command.index("-i"))
+        self.assertEqual(self._from_file_output_seek_only(path, start_second=5.5)._data, seg._data)
 
 
 class PyAudioopTests(unittest.TestCase):
