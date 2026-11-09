@@ -1,5 +1,6 @@
 from functools import partial
 import os
+import random
 import sys
 import unittest
 from tempfile import (
@@ -825,6 +826,80 @@ class AudioSegmentTests(unittest.TestCase):
         db_at_beginning = ratio_to_db(fade_out[:1000].rms, seg[:1000].rms)
         db_at_end = ratio_to_db(fade_out[-1000:].rms, seg[-1000:].rms)
         self.assertTrue(db_at_end < db_at_beginning)
+
+    def _noise(self, duration, seed):
+        state = random.getstate()
+        random.seed(seed)
+        try:
+            return WhiteNoise().to_audio_segment(duration=duration)
+        finally:
+            random.setstate(state)
+
+    def test_equal_power_crossfade_keeps_loudness(self):
+        # jiaaro/pydub#508: a linear crossfade dips about 3 dB in the middle
+        # when the two sounds are uncorrelated
+        a = self._noise(2000, 1)
+        b = self._noise(2000, 2)
+
+        for crossfade in (1000, 50):
+            mid = 2000 - crossfade // 2
+            window = slice(mid - 10, mid + 10)
+
+            linear = a.append(b, crossfade=crossfade)
+            equal_power = a.append(b, crossfade=crossfade, curve='equal_power')
+            self.assertEqual(len(equal_power), len(linear))
+
+            linear_db = ratio_to_db(linear[window].rms, a.rms)
+            equal_power_db = ratio_to_db(equal_power[window].rms, a.rms)
+            self.assertWithinRange(linear_db, -4, -2)
+            self.assertWithinRange(equal_power_db, -1, 1)
+
+    def test_equal_power_fade(self):
+        seg = Sine(440).to_audio_segment(duration=3000)
+
+        # coarse (> 100 ms) and precise (per sample) fades
+        for duration in (2000, 100):
+            linear = seg.fade_out(duration)
+            equal_power = seg.fade_out(duration, curve='equal_power')
+            mid = len(seg) - duration // 2
+            window = slice(mid - 5, mid + 5)
+
+            # half way through, linear is at half amplitude (-6 dB) and
+            # equal power is at half power (-3 dB)
+            self.assertWithinRange(
+                ratio_to_db(linear[window].rms, seg.rms), -6.5, -5.5)
+            self.assertWithinRange(
+                ratio_to_db(equal_power[window].rms, seg.rms), -3.5, -2.5)
+
+            fade_in = seg.fade_in(duration, curve='equal_power')
+            self.assertWithinRange(
+                ratio_to_db(fade_in[duration // 2 - 5:duration // 2 + 5].rms,
+                            seg.rms),
+                -3.5, -2.5)
+            self.assertEqual(fade_in[duration:], seg[duration:])
+
+        # audio before and after the fade keeps from_gain and to_gain
+        faded = seg.fade(from_gain=-6, to_gain=0, start=1000, end=2000,
+                         curve='equal_power')
+        self.assertEqual(faded[:1000], seg[:1000].apply_gain(-6))
+        self.assertEqual(faded[2000:], seg[2000:])
+        self.assertWithinRange(
+            ratio_to_db(faded[1000:1010].rms, seg.rms), -6.5, -5.5)
+        self.assertWithinRange(
+            ratio_to_db(faded[1990:2000].rms, seg.rms), -0.5, 0.5)
+
+    def test_fade_curve_default_is_linear(self):
+        seg = self.seg1[:3000]
+        self.assertEqual(seg.fade_out(1000), seg.fade_out(1000, curve='linear'))
+        self.assertEqual(seg.fade_in(50), seg.fade_in(50, curve='linear'))
+        self.assertEqual(seg.append(self.seg2[:3000]),
+                         seg.append(self.seg2[:3000], curve='linear'))
+
+    def test_fade_raises_exception_for_unknown_curve(self):
+        seg = self.seg1[:1000]
+        self.assertRaises(ValueError, partial(seg.fade_out, 100, curve='log'))
+        self.assertRaises(ValueError,
+                          partial(seg.append, seg, curve='equal-power'))
 
     def test_reverse(self):
         seg = self.seg1

@@ -358,12 +358,17 @@ no_crossfade1 = sound1.append(sound2, crossfade=0)
 
 # no crossfade
 no_crossfade2 = sound1 + sound2
+
+# equal power crossfade (no volume dip in the middle)
+combined_equal_power = sound1.append(sound2, crossfade=5000, curve='equal_power')
 ```
 
 **Supported keyword arguments**:
 
 - `crossfade` | example: `3000` | default: `100` (entire duration of `AudioSegment`)
   When specified, method returns number of frames in X milliseconds of the `AudioSegment`
+- `curve` | example: `'equal_power'` | default: `'linear'`
+  Shape of the crossfade, passed to `.fade()`. A linear crossfade between two unrelated sounds is about 3dB quieter in the middle; `'equal_power'` keeps the loudness constant.
 
 ### AudioSegment(…).overlay()
 
@@ -448,6 +453,8 @@ fade_out_the_hard_way = sound1.fade(to_gain=-120.0, end=0, duration=5000)
   The overlaid `AudioSegment` will repeat X times (starting at `position`) but will still be truncated to the length of this `AudioSegment`
 - `duration` | example: `4` | NO DEFAULT
   You can use `start` or `end` with duration, instead of specifying both - provided as a convenience.
+- `curve` | example: `'equal_power'` | default: `'linear'`
+  `'linear'` changes the amplitude linearly over the fade. `'equal_power'` changes the power (amplitude squared) linearly instead, so half way through a fade out the audio is at -3dB rather than -6dB. Use it for crossfades between unrelated sounds to avoid a dip in volume.
 
 ### AudioSegment(…).fade_out()
 
@@ -457,6 +464,8 @@ Fade out (to silent) the end of this `AudioSegment`. Uses `.fade()` internally.
 
 - `duration` | example: `5000` | NO DEFAULT
   How long (in milliseconds) the fade should last. Passed directly to `.fade()` internally
+- `curve` | example: `'equal_power'` | default: `'linear'`
+  Shape of the fade. Passed directly to `.fade()` internally
 
 ### AudioSegment(…).fade_in()
 
@@ -466,6 +475,8 @@ Fade in (from silent) the beginning of this `AudioSegment`. Uses `.fade()` inter
 
 - `duration` | example: `5000` | NO DEFAULT
   How long (in milliseconds) the fade should last. Passed directly to `.fade()` internally
+- `curve` | example: `'equal_power'` | default: `'linear'`
+  Shape of the fade. Passed directly to `.fade()` internally
 
 ### AudioSegment(…).reverse()
 

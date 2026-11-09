@@ -1252,7 +1252,7 @@ class AudioSegment(object):
 
         return spawn(data=output)
 
-    def append(self, seg, crossfade=100):
+    def append(self, seg, crossfade=100, curve='linear'):
         seg1, seg2 = AudioSegment._sync(self, seg)
 
         if not crossfade:
@@ -1266,8 +1266,10 @@ class AudioSegment(object):
                 crossfade, len(seg)
             ))
 
-        xf = seg1[-crossfade:].fade(to_gain=-120, start=0, end=float('inf'))
-        xf *= seg2[:crossfade].fade(from_gain=-120, start=0, end=float('inf'))
+        xf = seg1[-crossfade:].fade(to_gain=-120, start=0, end=float('inf'),
+                                    curve=curve)
+        xf *= seg2[:crossfade].fade(from_gain=-120, start=0, end=float('inf'),
+                                    curve=curve)
 
         output = BytesIO()
 
@@ -1281,7 +1283,7 @@ class AudioSegment(object):
         return obj
 
     def fade(self, to_gain=0, from_gain=0, start=None, end=None,
-             duration=None):
+             duration=None, curve='linear'):
         """
         Fade the volume of this audio segment.
 
@@ -1299,7 +1301,18 @@ class AudioSegment(object):
         duration (int):
             default = until the end of the audio segment
             the duration of the fade
+
+        curve (str):
+            default = 'linear'
+            'linear' changes the amplitude linearly. 'equal_power' changes
+            the power linearly instead, so a crossfade between two
+            uncorrelated sounds keeps a constant loudness (no dip in the
+            middle)
         """
+        if curve not in ('linear', 'equal_power'):
+            raise ValueError("curve must be 'linear' or 'equal_power', "
+                             "not {!r}".format(curve))
+
         if None not in [duration, end, start]:
             raise TypeError('Only two of the three arguments, "start", '
                             '"end", and "duration" may be specified')
@@ -1339,16 +1352,26 @@ class AudioSegment(object):
                                       from_power)
         output.append(before_fade)
 
-        gain_delta = db_to_float(to_gain) - from_power
+        to_power = db_to_float(to_gain)
+        if curve == 'equal_power':
+            # interpolate squared amplitude (power), take the square root
+            # per step; the end points stay at from_gain and to_gain
+            gain_delta = to_power ** 2 - from_power ** 2
+
+            def volume(i, steps):
+                return (from_power ** 2 + (gain_delta / steps) * i) ** 0.5
+        else:
+            gain_delta = to_power - from_power
+
+            def volume(i, steps):
+                return from_power + (gain_delta / steps) * i
 
         # fades longer than 100ms can use coarse fading (one gain step per ms),
         # shorter fades will have audible clicks so they use precise fading
         # (one gain step per sample)
         if duration > 100:
-            scale_step = gain_delta / duration
-
             for i in range(duration):
-                volume_change = from_power + (scale_step * i)
+                volume_change = volume(i, duration)
                 chunk = self[start + i]
                 chunk = audioop.mul(chunk._data,
                                     self.sample_width,
@@ -1359,10 +1382,8 @@ class AudioSegment(object):
             start_frame = self.frame_count(ms=start)
             end_frame = self.frame_count(ms=end)
             fade_frames = end_frame - start_frame
-            scale_step = gain_delta / fade_frames
-
             for i in range(int(fade_frames)):
-                volume_change = from_power + (scale_step * i)
+                volume_change = volume(i, fade_frames)
                 sample = self.get_frame(int(start_frame + i))
                 sample = audioop.mul(sample, self.sample_width, volume_change)
 
@@ -1378,11 +1399,13 @@ class AudioSegment(object):
 
         return self._spawn(data=output)
 
-    def fade_out(self, duration):
-        return self.fade(to_gain=-120, duration=duration, end=float('inf'))
+    def fade_out(self, duration, curve='linear'):
+        return self.fade(to_gain=-120, duration=duration, end=float('inf'),
+                         curve=curve)
 
-    def fade_in(self, duration):
-        return self.fade(from_gain=-120, duration=duration, start=0)
+    def fade_in(self, duration, curve='linear'):
+        return self.fade(from_gain=-120, duration=duration, start=0,
+                         curve=curve)
 
     def reverse(self):
         return self._spawn(
