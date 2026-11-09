@@ -86,12 +86,73 @@ def speedup(seg, playback_speed=1.5, chunk_size=150, crossfade=25):
     last_chunk = chunks[-1]
     chunks = [chunk[:-ms_to_remove_per_chunk] for chunk in chunks[:-1]]
 
-    out = chunks[0]
-    for chunk in chunks[1:]:
-        out = out.append(chunk, crossfade=crossfade)
+    if crossfade < 0:
+        # degenerate settings (playback_speed very close to 1.0); keep the
+        # original behaviour of AudioSegment.append()
+        out = chunks[0]
+        for chunk in chunks[1:]:
+            out = out.append(chunk, crossfade=crossfade)
+        return out + last_chunk
 
-    out += last_chunk
-    return out
+    # Equivalent to chaining out.append(chunk, crossfade=crossfade), but
+    # without copying all of the output for every chunk (which is quadratic).
+    # Only the last `crossfade` ms of the output are needed for each step, so
+    # the output is kept as a list of byte strings and joined once at the end.
+    first = chunks[0]
+    if crossfade > len(first):
+        raise ValueError("Crossfade is longer than the original AudioSegment ({}ms > {}ms)".format(
+            crossfade, len(first)
+        ))
+
+    frame_width = first.frame_width
+    frames_per_ms = first.frame_rate / 1000.0
+    pieces = [first._data]
+    out_bytes = len(first._data)
+
+    for chunk in chunks[1:]:
+        if not crossfade:
+            pieces.append(chunk._data)
+            out_bytes += len(chunk._data)
+            continue
+
+        if crossfade > len(chunk):
+            raise ValueError("Crossfade is longer than the appended AudioSegment ({}ms > {}ms)".format(
+                crossfade, len(chunk)
+            ))
+
+        # positions of out[-crossfade:], computed exactly as AudioSegment
+        # slicing does (based on the length of the output in ms)
+        out_ms = round(1000 * (float(out_bytes // frame_width) / first.frame_rate))
+        start = int((out_ms - crossfade) * frames_per_ms) * frame_width
+        end = int(out_ms * frames_per_ms) * frame_width
+
+        # take everything after `start` off the output
+        tail = []
+        while out_bytes > start:
+            piece = pieces.pop()
+            out_bytes -= len(piece)
+            tail.insert(0, piece)
+        tail = b''.join(tail)
+        keep = start - out_bytes
+        pieces.append(tail[:keep])
+        out_bytes += keep
+        tail = tail[keep:keep + end - start]
+
+        # pad with silence like AudioSegment slicing does
+        missing_frames = (end - start - len(tail)) // frame_width
+        if missing_frames:
+            silence = audioop.mul(tail[:frame_width], first.sample_width, 0)
+            tail += silence * missing_frames
+
+        xf = first._spawn(tail).fade(to_gain=-120, start=0, end=float('inf'))
+        xf *= chunk[:crossfade].fade(from_gain=-120, start=0, end=float('inf'))
+
+        for data in (xf._data, chunk[crossfade:]._data):
+            pieces.append(data)
+            out_bytes += len(data)
+
+    pieces.append(last_chunk._data)
+    return first._spawn(pieces)
     
 
 @register_pydub_effect
