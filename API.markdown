@@ -135,6 +135,7 @@ The first argument is the location (as a string) to write the output, **or** a f
 
 - `format` | example: `"aif"` | default: `"mp3"`
   Format of the output file. Supports `"wav"` and `"raw"` natively, requires ffmpeg for all other formats.
+  Pass `format=None` to take the format from the extension of the output path instead, so `sound.export("/path/to/output.ogg", format=None)` writes ogg (and `".wav"` still writes the wav directly). Raises `ValueError` if the output is a file handle or the path has no extension.
 - `codec` | example: `"libvorbis"`
   For formats that may contain content encoded with different codecs, you can specify the codec you'd like the encoder to use. For example, the "ogg" format is often used with the "libvorbis" codec. (requires ffmpeg)
 - `bitrate` | example: `"128k"` or `128000`

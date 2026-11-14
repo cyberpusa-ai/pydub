@@ -950,9 +950,12 @@ class AudioSegment(object):
             Path to destination audio file. Also accepts os.PathLike objects on
             python >= 3.6
 
-        format (string)
-            Format for destination audio file.
+        format (string or None)
+            Format for destination audio file. (default: 'mp3')
             ('mp3', 'wav', 'raw', 'ogg' or other ffmpeg/avconv supported files)
+            When None, the format is taken from the extension of out_f
+            (e.g. 'song.ogg' -> 'ogg'); raises ValueError if out_f is a file
+            object or has no extension.
 
         codec (string)
             Codec used to encode the destination file.
@@ -978,6 +981,17 @@ class AudioSegment(object):
             Set cover for audio file from image file. (png or jpg)
         """
         id3v2_allowed_versions = ['3', '4']
+
+        if format is None:
+            # infer the format from the extension of the destination path
+            if isinstance(out_f, (basestring, bytes, os.PathLike)):
+                format = os.path.splitext(fsdecode(out_f))[1][1:].lower() or None
+            if format is None:
+                raise ValueError(
+                    "export(format=None) needs a destination path with a file "
+                    "extension to infer the format from; pass format explicitly "
+                    "(e.g. format='mp3') when exporting to a file object or a "
+                    "path without an extension")
 
         if format == "raw" and (codec is not None or parameters is not None):
             raise AttributeError(

@@ -8,6 +8,7 @@ from tempfile import (
     mkdtemp,
     gettempdir
 )
+import shutil
 import tempfile
 import struct
 import subprocess
@@ -791,6 +792,50 @@ class AudioSegmentTests(unittest.TestCase):
         seg = self.seg1
         with self.assertRaises(AttributeError):
             seg.export(format='raw', parameters=['-ar', '16000', '-ac', '1'])
+
+    def test_export_format_none_infers_wav_from_extension(self):
+        seg = self.seg1[:1000]
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp_dir, 'out.WAV')
+            seg.export(path, format=None).close()
+            self.assertEqual(mediainfo(path)['format_name'], 'wav')
+            self.assertEqual(AudioSegment.from_wav(path).raw_data, seg.raw_data)
+        finally:
+            shutil.rmtree(tmp_dir)
+
+    @unittest.skipUnless(HAS_LIBVORBIS,
+                         "Unsupported codecs")
+    def test_export_format_none_infers_ogg_from_extension(self):
+        seg = self.seg1[:1000]
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp_dir, 'out.ogg')
+            seg.export(path, format=None).close()
+            self.assertEqual(mediainfo(path)['format_name'], 'ogg')
+            if sys.version_info >= (3, 6):
+                from pathlib import Path
+                path = Path(tmp_dir) / 'out2.ogg'
+                seg.export(path, format=None).close()
+                self.assertEqual(mediainfo(str(path))['format_name'], 'ogg')
+        finally:
+            shutil.rmtree(tmp_dir)
+
+    def test_export_format_none_needs_extension(self):
+        seg = self.seg1[:100]
+        with self.assertRaises(ValueError):
+            seg.export(BytesIO(), format=None)
+        with self.assertRaises(ValueError):
+            seg.export(format=None)
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            path = os.path.join(tmp_dir, 'no_extension')
+            with self.assertRaises(ValueError):
+                seg.export(path, format=None)
+            # nothing is created when the format can't be inferred
+            self.assertFalse(os.path.exists(path))
+        finally:
+            shutil.rmtree(tmp_dir)
 
     @unittest.skipUnless(HAS_LIBVORBIS,
                          "Unsupported codecs")
