@@ -1097,6 +1097,49 @@ class AudioSegmentTests(unittest.TestCase):
             self.assertWithinTolerance(len(self.seg1), len(testseg), 150)
             self.assertWithinTolerance(self.seg1.dBFS, testseg.dBFS, 1.5)
 
+    def test_mp3_with_pathlike_cover_img(self):
+        from pathlib import Path
+        with NamedTemporaryFile('w+b', suffix='.mp3') as tmp_mp3_file:
+            outf = self.seg1.export(tmp_mp3_file, format="mp3",
+                                    cover=Path(self.jpg_cover_path))
+            testseg = AudioSegment.from_file(outf, format="mp3")
+            self.assertWithinTolerance(len(self.seg1), len(testseg), 150)
+
+            # the cover image is embedded as a video stream
+            info = mediainfo_json(tmp_mp3_file.name)
+            codec_types = [st.get('codec_type') for st in info['streams']]
+            self.assertIn('video', codec_types)
+
+    def test_cover_with_non_mp3_format_raises(self):
+        with NamedTemporaryFile('w+b', suffix='.ogg') as tmp_file:
+            with self.assertRaises(AttributeError) as cm:
+                self.seg1.export(tmp_file, format="ogg", cover=self.jpg_cover_path)
+        msg = str(cm.exception)
+        self.assertIn("only supported for mp3", msg)
+        self.assertNotIn("extension", msg)
+
+    def test_cover_with_unsupported_image_extension_raises(self):
+        from pathlib import Path
+        with NamedTemporaryFile('w+b', suffix='.mp3') as tmp_file:
+            with self.assertRaises(AttributeError) as cm:
+                self.seg1.export(tmp_file, format="mp3",
+                                 cover=Path(data_dir) / 'cover.gif')
+        msg = str(cm.exception)
+        self.assertIn("unsupported cover image extension '.gif'", msg)
+        self.assertIn(".png", msg)
+        self.assertNotIn("only supported for mp3", msg)
+
+    def test_cover_extension_check_is_case_insensitive(self):
+        tmp_dir = tempfile.mkdtemp()
+        try:
+            cover = os.path.join(tmp_dir, 'COVER.JPG')
+            shutil.copyfile(self.jpg_cover_path, cover)
+            out = os.path.join(tmp_dir, 'out.mp3')
+            self.seg1.export(out, format="mp3", cover=cover).close()
+            self.assertTrue(os.path.getsize(out) > 0)
+        finally:
+            shutil.rmtree(tmp_dir)
+
     def test_fade_raises_exception_when_duration_start_end_are_none(self):
         seg = self.seg1
         func = partial(seg.fade, start=1, end=1, duration=1)

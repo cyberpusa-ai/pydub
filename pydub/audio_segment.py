@@ -86,6 +86,9 @@ AUDIO_FILE_EXT_ALIASES = {
     "wave": "wav",
 }
 
+# image file extensions export(cover=...) accepts
+COVER_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')
+
 # The RIFF size field of a wav file is a 32-bit unsigned int and also covers
 # the 36 header bytes in front of the data chunk, so this is the most pcm
 # data the wave module can write. Bigger exports bypass the temporary wav.
@@ -977,8 +980,9 @@ class AudioSegment(object):
         id3v2_version (string)
             Set ID3v2 version for tags. (default: '4')
 
-        cover (file)
-            Set cover for audio file from image file. (png or jpg)
+        cover (string or path-like)
+            Set cover for audio file from image file. (png, jpg, jpeg, bmp,
+            tif or tiff; mp3 exports only)
         """
         id3v2_allowed_versions = ['3', '4']
 
@@ -1069,11 +1073,17 @@ class AudioSegment(object):
             codec = self.DEFAULT_CODECS.get(format, None)
 
         if cover is not None:
-            if cover.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')) and format == "mp3":
-                conversion_command.extend(["-i", cover, "-map", "0", "-map", "1", "-c:v", "mjpeg"])
-            else:
+            cover = fsdecode(cover)
+            if format != "mp3":
                 raise AttributeError(
-                    "Currently cover images are only supported by MP3 files. The allowed image formats are: .tif, .jpg, .bmp, .jpeg and .png.")
+                    "cover is only supported for mp3 exports, not format={0!r}".format(format))
+            cover_ext = os.path.splitext(cover)[1].lower()
+            if cover_ext not in COVER_IMAGE_EXTENSIONS:
+                raise AttributeError(
+                    "unsupported cover image extension {0!r}; use {1}".format(
+                        cover_ext, "/".join(COVER_IMAGE_EXTENSIONS)))
+            conversion_command.extend(["-i", _safe_input_path(cover),
+                                       "-map", "0", "-map", "1", "-c:v", "mjpeg"])
 
         if codec is not None:
             # force audio encoder

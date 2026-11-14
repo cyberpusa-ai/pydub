@@ -147,7 +147,7 @@ The first argument is the location (as a string) to write the output, **or** a f
 - `id3v2_version` | example: `"3"` | default: `"4"`
   Set the ID3v2 version used by ffmpeg to add tags to the output file. If you want Windows Exlorer to display tags, use `"3"` here ([source](http://superuser.com/a/453133)).
 - `cover` | example: `"/path/to/imgfile.png"`
-  Allows you to supply a cover image (path to the image file). Currently, only MP3 files allow this keyword argument. Cover image must be a jpeg, png, bmp, or tiff file.
+  Allows you to supply a cover image (path to the image file, as a string or path-like object such as `pathlib.Path`). Currently, only MP3 files allow this keyword argument. Cover image must be a jpeg, png, bmp, or tiff file. Using `cover` with another format, or with an image file of another extension, raises `AttributeError` with a message saying which of the two is the problem.
 
 Very long audio (more than 4 GiB of raw data, about 6.7 hours of 44.1 kHz 16-bit stereo) doesn't fit in a standard wav file. Exporting it to other formats works as usual, but `export(format="wav")` with no `codec` or `parameters` raises `CouldntEncodeError`. Use `export(format="wav", parameters=["-rf64", "auto"])` to have ffmpeg write an RF64 wav instead.
 
