@@ -6,7 +6,7 @@ import json
 import os
 import re
 import sys
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, DEVNULL
 from math import log, ceil
 from tempfile import TemporaryFile
 from warnings import warn
@@ -226,12 +226,31 @@ def _get_prober_path():
     return prober
 
 
+# subprocess.CREATE_NO_WINDOW only exists on Windows builds of Python
+_CREATE_NO_WINDOW = 0x08000000
+
+
+def _popen_kwargs(kwargs):
+    """
+    Never let ffmpeg/ffprobe inherit our stdin: apps without a console
+    (PyInstaller --noconsole, pythonw) have no valid stdin handle on Windows,
+    and Popen then fails with "[WinError 6] The handle is invalid". On Windows
+    also keep each call from flashing a console window. Values the caller
+    passes explicitly are kept.
+    """
+    if kwargs.get('stdin') is None:
+        kwargs['stdin'] = DEVNULL
+    if sys.platform == 'win32':
+        kwargs.setdefault('creationflags', _CREATE_NO_WINDOW)
+    return kwargs
+
+
 def _popen_prober(command, **kwargs):
     """
     Run the probe application, raising a helpful error if it can't be found.
     """
     try:
-        return Popen(command, **kwargs)
+        return Popen(command, **_popen_kwargs(kwargs))
     except OSError as e:
         if e.errno != errno.ENOENT:
             raise
@@ -250,7 +269,7 @@ def _popen_converter(command, **kwargs):
     "except OSError" / "except FileNotFoundError" handlers still catch it.
     """
     try:
-        return Popen(command, **kwargs)
+        return Popen(command, **_popen_kwargs(kwargs))
     except OSError as e:
         if e.errno != errno.ENOENT:
             raise

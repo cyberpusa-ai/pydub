@@ -1924,6 +1924,75 @@ class MissingConverterTests(unittest.TestCase):
         self.assertEqual(len(AudioSegment.from_file(out, format="wav")), 100)
 
 
+class PopenStdinTests(unittest.TestCase):
+    """Windows apps without a console (PyInstaller --noconsole, pythonw) have
+    no valid stdin handle, so ffmpeg/ffprobe must never inherit it
+    (jiaaro/pydub#536)."""
+
+    def setUp(self):
+        from pydub import utils
+        self.utils = utils
+        self.calls = []
+        self.orig_popen = utils.Popen
+        self.orig_platform = utils.sys.platform
+        calls = self.calls
+        orig_popen = self.orig_popen
+
+        def recording_popen(command, **kwargs):
+            calls.append(dict(kwargs))
+            kwargs.pop('creationflags', None)
+            return orig_popen(command, **kwargs)
+
+        utils.Popen = recording_popen
+
+    def tearDown(self):
+        self.utils.Popen = self.orig_popen
+        self.utils.sys.platform = self.orig_platform
+
+    def assertAllDevnullOrPipe(self):
+        self.assertTrue(self.calls)
+        for kwargs in self.calls:
+            self.assertIn(kwargs.get('stdin'), (subprocess.DEVNULL, subprocess.PIPE))
+
+    def test_from_file_path_does_not_inherit_stdin(self):
+        seg = AudioSegment.from_file(os.path.join(data_dir, 'test1.mp3'))
+        self.assertTrue(len(seg) > 1000)
+        self.assertAllDevnullOrPipe()
+        self.assertIn(subprocess.DEVNULL, [c.get('stdin') for c in self.calls])
+
+    def test_mediainfo_path_does_not_inherit_stdin(self):
+        info = mediainfo_json(os.path.join(data_dir, 'test1.mp3'))
+        self.assertEqual(info['streams'][0]['codec_name'], 'mp3')
+        self.assertEqual(self.calls[-1].get('stdin'), subprocess.DEVNULL)
+        mediainfo(os.path.join(data_dir, 'test1.mp3'))
+        self.assertEqual(self.calls[-1].get('stdin'), subprocess.DEVNULL)
+
+    def test_supported_codecs_do_not_inherit_stdin(self):
+        from pydub.utils import get_supported_codecs
+        get_supported_codecs.__wrapped__()  # bypass the codec cache
+        self.assertEqual(self.calls[-1].get('stdin'), subprocess.DEVNULL)
+
+    def test_explicit_stdin_is_kept(self):
+        with open(os.path.join(data_dir, 'test1.mp3'), 'rb') as f:
+            mediainfo_json(f)
+        self.assertEqual(self.calls[-1].get('stdin'), subprocess.PIPE)
+
+    def test_no_console_window_only_on_windows(self):
+        self.utils.sys.platform = 'linux'
+        mediainfo_json(os.path.join(data_dir, 'test1.mp3'))
+        self.assertNotIn('creationflags', self.calls[-1])
+
+        self.utils.sys.platform = 'win32'
+        mediainfo_json(os.path.join(data_dir, 'test1.mp3'))
+        self.assertEqual(self.calls[-1].get('creationflags'), 0x08000000)
+
+    def test_caller_creationflags_are_kept(self):
+        self.utils.sys.platform = 'win32'
+        self.utils._popen_prober([self.utils.get_prober_name(), '-version'],
+                                 stdout=subprocess.PIPE, creationflags=0).communicate()
+        self.assertEqual(self.calls[-1].get('creationflags'), 0)
+
+
 class PlaybackTests(unittest.TestCase):
 
     def test_ffplay_is_quiet(self):
