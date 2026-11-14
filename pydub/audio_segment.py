@@ -99,6 +99,9 @@ RAW_PCM_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
 KSDATAFORMAT_SUBTYPE_PCM = (b'\x01\x00\x00\x00\x00\x00\x10\x00'
                             b'\x80\x00\x00\xaa\x00\x38\x9b\x71')
 
+# export formats that ffmpeg knows under a different muxer name
+FFMPEG_MUXERS = {"aac": "adts", "m4a": "ipod"}
+
 WavSubChunk = namedtuple('WavSubChunk', ['id', 'position', 'size'])
 WavData = namedtuple('WavData', ['audio_format', 'channels', 'sample_rate',
                                  'bits_per_sample', 'raw_data'])
@@ -244,7 +247,9 @@ class AudioSegment(object):
         cls.converter = val
 
     DEFAULT_CODECS = {
-        "ogg": "libvorbis"
+        "ogg": "libvorbis",
+        "aac": "aac",
+        "m4a": "aac",
     }
 
     def __init__(self, data=None, *args, **kwargs):
@@ -977,8 +982,6 @@ class AudioSegment(object):
         cover (file)
             Set cover for audio file from image file. (png or jpg)
         """
-        id3v2_allowed_versions = ['3', '4']
-
         if format == "raw" and (codec is not None or parameters is not None):
             raise AttributeError(
                     'Can not invoke ffmpeg when export format is "raw"; '
@@ -998,7 +1001,30 @@ class AudioSegment(object):
                 "to write an RF64 wav with ffmpeg, or export to another format.".format(
                     len(self._data), WAV_MAX_DATA_BYTES))
 
+        # if we open out_f from a path, a failed export must not leave it behind
+        out_path = out_f if isinstance(out_f, (basestring, os.PathLike)) else None
+
         out_f, _ = _fd_or_path_or_tempfile(out_f, 'wb+')
+        try:
+            return self._export_to(out_f, format, codec, bitrate, parameters, tags,
+                                   id3v2_version, cover, easy_wav, too_big_for_wav)
+        except Exception:
+            if out_path is not None:
+                # don't let a cleanup failure hide the original error
+                try:
+                    out_f.close()
+                except Exception:
+                    pass
+                try:
+                    os.remove(out_path)
+                except OSError:
+                    pass
+            raise
+
+    def _export_to(self, out_f, format, codec, bitrate, parameters, tags, id3v2_version,
+                   cover, easy_wav, too_big_for_wav):
+        id3v2_allowed_versions = ['3', '4']
+
         out_f.seek(0)
 
         if format == "raw":
@@ -1095,7 +1121,8 @@ class AudioSegment(object):
             conversion_command.extend(["-write_xing", "0"])
 
         conversion_command.extend([
-            "-f", format, output.name,  # output options (filename last)
+            "-f", FFMPEG_MUXERS.get(format, format),
+            output.name,  # output options (filename last)
         ])
 
         log_conversion(conversion_command)

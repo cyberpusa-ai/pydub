@@ -70,6 +70,7 @@ def has_encoder(name):
 
 
 HAS_LIBVORBIS = has_encoder('libvorbis')
+HAS_AAC = has_encoder('aac')
 
 
 class UtilityTests(unittest.TestCase):
@@ -802,6 +803,59 @@ class AudioSegmentTests(unittest.TestCase):
         self.assertWithinTolerance(len(seg_exported_ogg),
                                    len(seg),
                                    percentage=0.01)
+
+    @unittest.skipUnless(HAS_AAC, "Unsupported codecs")
+    def test_export_as_aac_and_m4a(self):
+        seg = self.seg1[:5000]
+        for fmt in ("aac", "m4a"):
+            with NamedTemporaryFile('w+b', suffix='.' + fmt) as tmp_file:
+                if sys.platform == 'win32':
+                    tmp_file.close()
+
+                seg.export(tmp_file.name, format=fmt).close()
+                exported = AudioSegment.from_file(tmp_file.name)
+
+            self.assertWithinTolerance(len(exported), len(seg), percentage=0.05)
+
+    def test_failed_export_to_path_leaves_no_file(self):
+        from pathlib import Path
+        seg = AudioSegment.silent(duration=100)
+        tmpdir = tempfile.mkdtemp()
+        try:
+            for path in (os.path.join(tmpdir, 'out.xyz'), Path(tmpdir) / 'out2.xyz'):
+                with self.assertRaises(CouldntEncodeError):
+                    seg.export(path, format='not_a_real_format')
+                self.assertFalse(os.path.exists(path))
+        finally:
+            os.rmdir(tmpdir)
+
+    def test_failed_export_cleanup_error_keeps_original_error(self):
+        seg = AudioSegment.silent(duration=100)
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, 'out.xyz')
+        real_remove = os.remove
+
+        def failing_remove(p):
+            raise PermissionError(13, 'Permission denied', p)
+
+        try:
+            os.remove = failing_remove
+            try:
+                with self.assertRaises(CouldntEncodeError):
+                    seg.export(path, format='not_a_real_format')
+            finally:
+                os.remove = real_remove
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            os.rmdir(tmpdir)
+
+    def test_failed_export_leaves_file_object_open(self):
+        seg = AudioSegment.silent(duration=100)
+        out = BytesIO()
+        with self.assertRaises(CouldntEncodeError):
+            seg.export(out, format='not_a_real_format')
+        self.assertFalse(out.closed)
 
     @unittest.skipUnless(HAS_LIBVORBIS,
                          "Unsupported codecs")
