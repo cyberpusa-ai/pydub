@@ -1577,6 +1577,76 @@ class CompressedWavTests(unittest.TestCase):
         self.assertDecodes('pcm_s24le', 4)
         self.assertDecodes('pcm_s32le', 4)
 
+
+class ExtensibleWavTests(unittest.TestCase):
+    """
+    WAVE_FORMAT_EXTENSIBLE files only take the wav fast path when the
+    SubFormat is integer pcm. ffmpeg writes float wav as extensible, which
+    used to be read as integer samples (jiaaro/pydub#129).
+    """
+
+    def setUp(self):
+        self.tmp_dir = mkdtemp()
+        self.seg = Sine(440).to_audio_segment(duration=1000).apply_gain(-18)
+
+    def tearDown(self):
+        AudioSegment.converter = get_encoder_name()
+        for name in os.listdir(self.tmp_dir):
+            os.remove(os.path.join(self.tmp_dir, name))
+        os.rmdir(self.tmp_dir)
+
+    def encode(self, codec):
+        path = os.path.join(self.tmp_dir, codec + '.wav')
+        self.seg.export(path, format='wav', codec=codec).close()
+        with open(path, 'rb') as f:
+            data = f.read()
+        fmt = [x for x in extract_wav_headers(data) if x.id == b'fmt '][0]
+        self.assertEqual(struct.unpack_from('<H', data, fmt.position + 8)[0], 0xFFFE)
+        return path, data
+
+    def test_float_wav_decodes_through_ffmpeg(self):
+        path, _ = self.encode('pcm_f32le')
+        seg = AudioSegment.from_file(path)
+        self.assertEqual(seg.sample_width, 4)
+        self.assertEqual(seg.frame_count(), self.seg.frame_count())
+        self.assertTrue(abs(seg.dBFS - self.seg.dBFS) < 0.1, (seg.dBFS, self.seg.dBFS))
+
+        seg = AudioSegment.from_wav(path)
+        self.assertTrue(abs(seg.dBFS - self.seg.dBFS) < 0.1, (seg.dBFS, self.seg.dBFS))
+
+    def test_float_wav_is_not_read_as_pcm(self):
+        _, data = self.encode('pcm_f32le')
+        self.assertRaises(CouldntDecodeError, audio_segment.read_wav_audio, data)
+        self.assertRaises(CouldntDecodeError, AudioSegment, data)
+
+    def test_float_guid_in_handbuilt_header(self):
+        def wav(sub_format, fmt_size=40):
+            fmt = struct.pack('<HHIIHH', 0xFFFE, 1, 8000, 16000, 2, 16)
+            fmt += struct.pack('<HHI', 22, 16, 4) + sub_format
+            fmt = fmt[:fmt_size]
+            samples = b'\x00\x01' * 8
+            body = (b'WAVE' + b'fmt ' + struct.pack('<I', len(fmt)) + fmt +
+                    b'data' + struct.pack('<I', len(samples)) + samples)
+            return b'RIFF' + struct.pack('<I', len(body)) + body
+
+        pcm = audio_segment.KSDATAFORMAT_SUBTYPE_PCM
+        float_guid = b'\x03' + pcm[1:]
+        wav_data = audio_segment.read_wav_audio(wav(pcm))
+        self.assertEqual(wav_data.bits_per_sample, 16)
+        self.assertEqual(wav_data.raw_data, b'\x00\x01' * 8)
+        self.assertRaises(CouldntDecodeError, audio_segment.read_wav_audio, wav(float_guid))
+        # extensible without room for a SubFormat
+        self.assertRaises(CouldntDecodeError, audio_segment.read_wav_audio, wav(pcm, 18))
+
+    def test_pcm_extensible_wav_takes_fast_path(self):
+        path, _ = self.encode('pcm_s24le')
+        AudioSegment.converter = "definitely-not-a-path-to-anything-asdjklqwop"
+        seg = AudioSegment.from_file(path)
+        self.assertEqual(seg.sample_width, 4)
+        self.assertEqual(seg.frame_count(), self.seg.frame_count())
+        self.assertTrue(abs(seg.dBFS - self.seg.dBFS) < 0.1, (seg.dBFS, self.seg.dBFS))
+
+
 class LargeExportTests(unittest.TestCase):
     """
     More than 4 GiB of pcm can't be put in a wav header, so export() must

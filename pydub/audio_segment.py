@@ -94,6 +94,11 @@ WAV_MAX_DATA_BYTES = 0xFFFFFFFF - 36
 # ffmpeg raw input formats for each sample width (pydub stores signed pcm)
 RAW_PCM_FORMATS = {1: "s8", 2: "s16le", 3: "s24le", 4: "s32le"}
 
+# SubFormat GUID 00000001-0000-0010-8000-00aa00389b71 (integer pcm) as stored
+# in a WAVE_FORMAT_EXTENSIBLE fmt chunk
+KSDATAFORMAT_SUBTYPE_PCM = (b'\x01\x00\x00\x00\x00\x00\x10\x00'
+                            b'\x80\x00\x00\xaa\x00\x38\x9b\x71')
+
 WavSubChunk = namedtuple('WavSubChunk', ['id', 'position', 'size'])
 WavData = namedtuple('WavData', ['audio_format', 'channels', 'sample_rate',
                                  'bits_per_sample', 'raw_data'])
@@ -128,6 +133,14 @@ def read_wav_audio(data, headers=None):
     if audio_format != 1 and audio_format != 0xFFFE:
         raise CouldntDecodeError("Unknown audio format 0x%X in wav data" %
                                  audio_format)
+    if audio_format == 0xFFFE:
+        # WAVE_FORMAT_EXTENSIBLE: the real format is the SubFormat GUID at
+        # offset 24 of the fmt data. Only integer pcm can be read as is; float
+        # and anything else must be decoded by ffmpeg.
+        sub_format = data[pos + 24:pos + 40]
+        if fmt.size < 40 or sub_format != KSDATAFORMAT_SUBTYPE_PCM:
+            raise CouldntDecodeError("Unsupported WAVE_FORMAT_EXTENSIBLE sub format "
+                                     "in wav data (only integer pcm is supported)")
 
     channels = struct.unpack_from('<H', data[pos + 2:pos + 4])[0]
     sample_rate = struct.unpack_from('<I', data[pos + 4:pos + 8])[0]
