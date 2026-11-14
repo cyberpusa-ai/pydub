@@ -5,7 +5,7 @@ with open("README.markdown", encoding="utf-8") as f:
 
 setup(
     name='pydub-lts',
-    version='0.26.0.post2',
+    version='0.26.0.post3',
     author='James Robert',
     author_email='jiaaro@gmail.com',
     maintainer='Cyber Pusa',
