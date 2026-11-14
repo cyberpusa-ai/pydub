@@ -13,6 +13,7 @@ import struct
 import subprocess
 import warnings
 import types
+from unittest import mock
 from io import BytesIO
 
 from pydub import AudioSegment
@@ -2433,6 +2434,67 @@ class PyAudioopTests(unittest.TestCase):
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         _, err = proc.communicate()
         self.assertEqual(proc.returncode, 0, err.decode("utf-8", "replace"))
+
+
+class PopenStdinTests(unittest.TestCase):
+    """
+    ffmpeg/ffprobe never inherit stdin: frozen --noconsole / pythonw apps
+    on Windows have no valid stdin handle (WinError 6, jiaaro/pydub#536).
+    """
+
+    def setUp(self):
+        from pydub import utils
+        self.utils = utils
+        self.calls = []
+        real_popen = utils.Popen
+
+        def spy(command, **kwargs):
+            self.calls.append(kwargs)
+            return real_popen(command, **kwargs)
+
+        patcher = mock.patch.object(utils, "Popen", spy)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mp3 = os.path.join(data_dir, "test1.mp3")
+
+    def test_from_file_path_uses_devnull_stdin(self):
+        AudioSegment.from_file(self.mp3)
+        self.assertTrue(self.calls)
+        for kwargs in self.calls:
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_mediainfo_json_path_uses_devnull_stdin(self):
+        mediainfo_json(self.mp3)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0]["stdin"], subprocess.DEVNULL)
+
+    def test_get_supported_codecs_uses_devnull_stdin(self):
+        # bypass the cache_codecs wrapper so ffmpeg -codecs really runs
+        self.utils.get_supported_codecs.__wrapped__()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0]["stdin"], subprocess.DEVNULL)
+
+    def test_file_object_input_keeps_pipe(self):
+        with open(self.mp3, "rb") as f:
+            AudioSegment.from_file(f, format="mp3")
+        self.assertEqual(self.calls[-1]["stdin"], subprocess.PIPE)
+
+    def test_creationflags_only_on_windows(self):
+        with mock.patch.object(self.utils, "Popen") as popen:
+            with mock.patch.object(sys, "platform", "win32"):
+                self.utils._popen_converter(["ffmpeg"], stdout=subprocess.PIPE)
+                self.utils._popen_prober(["ffprobe"], creationflags=0)
+            self.utils._popen_converter(["ffmpeg"])
+        win_conv, win_probe, posix = [c[1] for c in popen.call_args_list]
+        self.assertEqual(win_conv["creationflags"], 0x08000000)
+        self.assertEqual(win_conv["stdin"], subprocess.DEVNULL)
+        self.assertEqual(win_probe["creationflags"], 0)
+        self.assertNotIn("creationflags", posix)
+
+    def test_explicit_stdin_is_kept(self):
+        with mock.patch.object(self.utils, "Popen") as popen:
+            self.utils._popen_converter(["ffmpeg"], stdin=subprocess.PIPE)
+        self.assertEqual(popen.call_args[1]["stdin"], subprocess.PIPE)
 
 
 if __name__ == "__main__":
